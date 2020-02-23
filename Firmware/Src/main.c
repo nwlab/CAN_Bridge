@@ -37,6 +37,7 @@
 #include "stm32f1xx_hal.h"
 #endif
 #include "usb_device.h"
+#include "stm32f4xx_delay.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -169,9 +170,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   User_GPIO_Init();
   LedG(1);
-	LedR(0);
-	LedB(1);
-  
+
   /*##-2- Start the Reception process and enable reception interrupt #########*/
   if (HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
   {
@@ -185,7 +184,7 @@ int main(void)
     /* Reception Error */
     Error_Handler();
   }
-  
+	
   RunTests(); // this is function to run transmission tests 
  
   // this is loopback cycle
@@ -938,6 +937,9 @@ void ProcessModification(CanTxMsgTypeDef* pTxMsg)
 // if defined then no transmission
 //#define TEST_LISTEN_ONLY
 
+// if defined leds blink
+#define TEST_BLINKY
+
 void RunTests()
 {
   uint32_t tickstart = 0;
@@ -945,6 +947,20 @@ void RunTests()
   CanRxMsgTypeDef *pRxMsg;
   CAN_HandleTypeDef *hcan;
   
+	#ifdef TEST_BLINKY
+	  // Delay initialize
+    delay_init();
+	
+    while(1)
+    {
+       // Toggle all LED
+			LedG_Toggle();
+			LedR_Toggle();
+			LedB_Toggle();
+       // Delay for 1sec
+       delay_ms(1000);
+    }		
+	#endif
   
   #ifdef TEST_LISTEN_ONLY
     while (1) if (RxQueueNotEmpty()) UART_ProcessData(RxQueueGet());

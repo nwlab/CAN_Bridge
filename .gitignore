@@ -1,0 +1,7 @@
+Firmware/MDK-ARM/DebugConfig
+Firmware/MDK-ARM/RTE
+*.lst
+*.uvguix.*
+*.scvd
+Firmware/MDK-ARM/STM32F4_can
+Firmware/MDK-ARM/STM32F1_can
