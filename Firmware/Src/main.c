@@ -278,14 +278,20 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.Prediv1Source = RCC_PREDIV1_SOURCE_HSE;
 #endif	
+#ifdef STM32F405xx
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4U;
+  RCC_OscInitStruct.PLL.PLLN = 72U;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 3U;
+#else	
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 25U;
   RCC_OscInitStruct.PLL.PLLN = 336U;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 7U;	
-#ifdef STM32F405xx	
-#else	
+  RCC_OscInitStruct.PLL.PLLQ = 7U;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   RCC_OscInitStruct.PLL2.PLL2State = RCC_PLL_NONE;
 #endif		
@@ -298,6 +304,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
+
 #ifdef STM32F405xx
 
 #else
@@ -938,7 +945,7 @@ void ProcessModification(CanTxMsgTypeDef* pTxMsg)
 //#define TEST_LISTEN_ONLY
 
 // if defined leds blink
-#define TEST_BLINKY
+//#define TEST_BLINKY
 
 void RunTests()
 {

@@ -1,14 +1,12 @@
 /**
   ******************************************************************************
-  * @file    stm32f4xx_hal_msp_template.c
-  * @author  MCD Application Team
-  * @brief   This file contains the HAL System and Peripheral (PPP) MSP initialization
-  *          and de-initialization functions.
-  *          It should be copied to the application folder and renamed into 'stm32f4xx_hal_msp.c'.           
+  * File Name          : stm32f4xx_hal_msp.c
+  * Description        : This file provides code for the MSP Initialization 
+  *                      and de-Initialization codes.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2017 STMicroelectronics.
+  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
   * All rights reserved.</center></h2>
   *
   * This software component is licensed by ST under BSD 3-Clause license,
@@ -56,6 +54,7 @@ void HAL_MspInit(void)
 
 	/* Enable SYSCFG Clock */
   __HAL_RCC_SYSCFG_CLK_ENABLE();
+  __HAL_RCC_PWR_CLK_ENABLE();
 
   HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
