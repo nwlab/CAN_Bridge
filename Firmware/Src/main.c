@@ -37,7 +37,6 @@
 #include "stm32f1xx_hal.h"
 #endif
 #include "usb_device.h"
-#include "stm32f4xx_delay.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -46,8 +45,7 @@
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
-
-
+UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -118,6 +116,7 @@ unsigned int *iReplace_NewDataValueLow;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_USART3_UART_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
 void Error_Handler(void);
@@ -140,6 +139,15 @@ uint8_t RxQueueGet(void);
 uint8_t RxQueueNotEmpty(void);
 
 void UART_ProcessData(uint8_t rx);
+
+#ifdef __GNUC__
+/* With GCC, small printf (option LD Linker->Libraries->Small printf
+   set to 'Yes') calls __io_putchar() */
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+#endif /* __GNUC__ */
+
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -148,10 +156,6 @@ void UART_ProcessData(uint8_t rx);
 
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
 
@@ -166,10 +170,15 @@ int main(void)
   MX_CAN1_Init();
   MX_CAN2_Init();
   MX_USB_DEVICE_Init();
+  MX_USART3_UART_Init();
 
   /* USER CODE BEGIN 2 */
   User_GPIO_Init();
   LedG(1);
+
+ /* Output a message on Hyperterminal using printf function */
+  printf("\n\r UART Printf Example: retarget the C library printf function to the UART\n\r");
+  printf("** Test finished successfully. ** \n\r");
 
   /*##-2- Start the Reception process and enable reception interrupt #########*/
   if (HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
@@ -192,9 +201,9 @@ int main(void)
   {
     if (bCAN2_TxReq)
     {
-      //LedR(1);
+      LedR(1);
       ProcessModification(hcan2.pTxMsg);
-      //LedR(0);
+      LedR(0);
       if (HAL_CAN_Transmit_IT(&hcan2) != HAL_OK)
       {
         /* Transmition Error */
@@ -245,9 +254,6 @@ int main(void)
   }
   
 
-  
-
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -263,6 +269,21 @@ int main(void)
 
 }
 
+/**
+  * @brief  Retargets the C library printf function to the USART.
+  * @param  None
+  * @retval None
+  */
+PUTCHAR_PROTOTYPE
+{
+  /* Place your implementation of fputc here */
+  /* e.g. write a character to the USART1 and Loop until the end of transmission */
+  HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
+
+  return ch;
+}
+
+
 /** System Clock Configuration
 */
 void SystemClock_Config(void)
@@ -270,8 +291,17 @@ void SystemClock_Config(void)
 
   RCC_OscInitTypeDef RCC_OscInitStruct;
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
+#ifndef STM32F405xx
   RCC_PeriphCLKInitTypeDef PeriphClkInit;
+#endif
 
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  /** Initializes the CPU, AHB and APB busses clocks
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
 #ifndef STM32F405xx	
@@ -297,6 +327,8 @@ void SystemClock_Config(void)
 #endif		
   HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
+  /** Initializes the CPU, AHB and APB busses clocks
+  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -315,13 +347,33 @@ void SystemClock_Config(void)
 
 
   HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-  __HAL_RCC_PLLI2S_ENABLE();
+//  __HAL_RCC_PLLI2S_ENABLE();
 
   /* SysTick_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /* CAN1 init function */
@@ -425,10 +477,8 @@ void MX_CAN2_Init(void)
 */
 void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct;
-
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 }
@@ -446,19 +496,17 @@ void MX_GPIO_Init(void)
 
 void User_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct;
-  
-  GPIO_InitStruct.Pin = LEDG_PIN;
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LEDG_GPIO, LEDG_PIN|LEDB_PIN|LEDR_PIN, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PA5 PA6 PA7 */
+  GPIO_InitStruct.Pin = LEDG_PIN|LEDB_PIN|LEDR_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LEDG_GPIO, &GPIO_InitStruct);
-
-  GPIO_InitStruct.Pin = LEDB_PIN;
-  HAL_GPIO_Init(LEDB_GPIO, &GPIO_InitStruct);
-  
-  GPIO_InitStruct.Pin = LEDR_PIN;
-  HAL_GPIO_Init(LEDR_GPIO, &GPIO_InitStruct);
 }
 
 void LedG(uint8_t On)
@@ -955,8 +1003,6 @@ void RunTests()
   CAN_HandleTypeDef *hcan;
   
 	#ifdef TEST_BLINKY
-	  // Delay initialize
-    delay_init();
 	
     while(1)
     {
@@ -965,7 +1011,7 @@ void RunTests()
 			LedR_Toggle();
 			LedB_Toggle();
        // Delay for 1sec
-       delay_ms(1000);
+			HAL_Delay(1000);
     }		
 	#endif
   
