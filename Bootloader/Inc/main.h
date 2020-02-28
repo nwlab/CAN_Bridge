@@ -60,6 +60,7 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 /* USER CODE BEGIN Private defines */
 
+#define FLASH_DISK_START_ADDRESS 0x08002800 /* Flash start address */
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
