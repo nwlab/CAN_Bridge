@@ -60,7 +60,28 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 /* USER CODE BEGIN Private defines */
 
+#define LEDG_PIN GPIO_PIN_7
+#define LEDG_GPIO GPIOA
+
+#define LEDB_PIN GPIO_PIN_6
+#define LEDB_GPIO GPIOA
+
+#define LEDR_PIN GPIO_PIN_5
+#define LEDR_GPIO GPIOA
+
 #define FLASH_DISK_START_ADDRESS 0x08002800 /* Flash start address */
+#define BTN_Pin GPIO_PIN_0
+#define BTN_GPIO_Port GPIOA
+#define LD4_Pin GPIO_PIN_8
+#define LD4_GPIO_Port GPIOC
+#define LD3_Pin GPIO_PIN_9
+#define LD3_GPIO_Port GPIOC
+#define TMS_SWDIO_Pin GPIO_PIN_13
+#define TMS_SWDIO_GPIO_Port GPIOA
+#define TCK_SWCLK_Pin GPIO_PIN_14
+#define TCK_SWCLK_GPIO_Port GPIOA
+
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

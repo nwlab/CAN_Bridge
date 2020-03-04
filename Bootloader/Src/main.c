@@ -22,10 +22,14 @@
 #include "main.h"
 #include "fatfs.h"
 #include "usb_device.h"
+#include "usbd_cdc_if.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "bootloader-config.h"
+#include "stm32f4xx_hal.h"
+#include "xmodem.h"
+#include "flash.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,9 +48,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 SD_HandleTypeDef hsd;
-//HAL_SD_CardInfoTypedef SDCardInfo;
+
 UART_HandleTypeDef huart3;
-int USBDeviceActivated = 0;
 
 /* USER CODE BEGIN PV */
 
@@ -57,6 +60,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SDIO_SD_Init(void);
 static void MX_USART3_UART_Init(void);
+void RunTests(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -67,10 +71,10 @@ void GoToUserApp(void)
 {
 	uint32_t appJumpAddress;
 	void (*GoToApp)(void);
-	appJumpAddress = *((volatile uint32_t*)(FLASH_DISK_START_ADDRESS + 4));
+	appJumpAddress = *((volatile uint32_t*)(FLASH_APP_START_ADDRESS + 4));
 	GoToApp = (void (*)(void))appJumpAddress;
-	SCB->VTOR = FLASH_DISK_START_ADDRESS;
-	__set_MSP(*((volatile uint32_t*) FLASH_DISK_START_ADDRESS)); //stack pointer (to RAM) for USER app in this address
+	SCB->VTOR = FLASH_APP_START_ADDRESS;
+	__set_MSP(*((volatile uint32_t*) FLASH_APP_START_ADDRESS)); //stack pointer (to RAM) for USER app in this address
 	GoToApp();
 }
 /* USER CODE END 0 */
@@ -109,7 +113,29 @@ int main(void)
   MX_SDIO_SD_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
+
+#if defined(UART_ENABLED)
+  printf("\n\r================================\n\r");
+  printf("USB/Xmodem Bootloader\n\r");
+  printf("https://github.com/nwlab/CAN_Bridge\n\r");
+  printf("Based on https://github.com/ferenc-nemeth/stm32-bootloader\n\r");
+  printf("================================\n\r");
+  printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
+  printf("Flash base address : 0x%08lX\n\r", FLASH_BASE);
+  printf("Flash size :         0x%08lX\n\r", (FLASH_END - FLASH_BASE));
+  printf("User application start address : 0x%08lX\n\r", FLASH_APP_START_ADDRESS);
+  printf("================================\n\r\n\r");
+#endif
+
+  RunTests(); // this is function to run transmission tests
+
+  /* If the button is pressed, then jump to the user application,
+   * otherwise stay in the bootloader. */
+//  if(!HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin))
+//  {
+//    printf("Jumping to user application...\n\r");
+//    flash_jump_to_app();
+//  }
   /* USER CODE END 2 */
  
  
@@ -119,7 +145,14 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+    /* Turn on the green LED to indicate, that we are in bootloader mode.*/
+    HAL_GPIO_WritePin(LEDR_GPIO, LEDR_PIN, GPIO_PIN_SET);
+    /* Ask for new data and start the Xmodem protocol. */
+    printf("Please send a new binary file with Xmodem protocol to update the firmware.\n\r");
+    xmodem_process();
+    /* We only exit the xmodem protocol, if there are any errors.
+     * In that case, notify the user and start over. */
+    printf("\n\rFailed... Please try again.\n\r");
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -265,7 +298,111 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+//#define TEST_USB_TRANSMIT
+// if defined leds blink
+//#define TEST_BLINKY
 
+void RunTests()
+{
+  #ifdef TEST_BLINKY
+
+    while(1)
+    {
+       // Toggle all LED
+      LedG_Toggle();
+      LedR_Toggle();
+      LedB_Toggle();
+       // Delay for 1sec
+      HAL_Delay(1000);
+    }
+  #endif
+
+  #ifdef TEST_USB_TRANSMIT
+    while(1)
+    {
+      uint8_t data = 'A';
+       // Toggle all LED
+      HAL_GPIO_TogglePin(LEDG_GPIO, LEDG_PIN);
+
+      if (CDC_Transmit_FS(&data, 1) == USBD_OK)
+      {
+        printf("Send OK\n\r");
+      }
+      else
+      {
+        printf("Send ERROR\n\r");
+      }
+       // Delay for 1sec
+      HAL_Delay(1000);
+    }
+  #endif
+
+  #ifdef TEST_LISTEN_ONLY
+    while (1) if (RxQueueNotEmpty()) UART_ProcessData(RxQueueGet());
+  #endif
+}
+//----------------------------------------------------------------------------------------
+// Simple Queue implementation for serial port
+
+#define RX_QUEUE_LENGTH 64
+static uint8_t bRxQueue[RX_QUEUE_LENGTH];
+static int iRxQueueCount = 0;
+static int iRxQueueIn = 0;
+static int iRxQueueOut = 0;
+
+void RxQueuePut(uint8_t data)
+{
+  if (iRxQueueCount < RX_QUEUE_LENGTH)
+  {
+    bRxQueue[iRxQueueIn] = data;
+    iRxQueueIn = iRxQueueIn + 1;
+    if (iRxQueueIn >= RX_QUEUE_LENGTH) iRxQueueIn = 0;
+    iRxQueueCount++;
+  }
+}
+
+uint8_t RxQueueGet()
+{
+  uint8_t data = 0;
+
+  if (iRxQueueCount > 0)
+  {
+    data = bRxQueue[iRxQueueOut];
+    iRxQueueOut = iRxQueueOut + 1;
+    if (iRxQueueOut >= RX_QUEUE_LENGTH) iRxQueueOut = 0;
+    iRxQueueCount--;
+  }
+
+  HAL_GPIO_WritePin(LEDG_GPIO, LEDG_PIN, GPIO_PIN_RESET);
+  return data;
+}
+
+uint8_t RxQueueNotEmpty() { return iRxQueueCount > 0; }
+
+xmodem_status xmodem_receive(uint8_t *data, uint16_t length)
+{
+  uint16_t i = 0;
+  while (i<length)
+  {
+    if (RxQueueNotEmpty())
+    {
+      data[i] = RxQueueGet();
+      i++;
+    }
+  }
+  return X_OK;
+}
+
+xmodem_status xmodem_transmit_ch(uint8_t data)
+{
+  HAL_GPIO_WritePin(LEDB_GPIO, LEDB_PIN, GPIO_PIN_SET);
+  if (CDC_Transmit_FS(&data, 1) == USBD_OK)
+  {
+    HAL_GPIO_WritePin(LEDB_GPIO, LEDB_PIN, GPIO_PIN_RESET);
+    return X_OK;
+  }
+  return X_ERROR_UART;
+}
 /* USER CODE END 4 */
 
 /**

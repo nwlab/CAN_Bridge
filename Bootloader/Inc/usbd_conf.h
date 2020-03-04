@@ -75,8 +75,6 @@
 #define USBD_LPM_ENABLED     0U
 /*---------- -----------*/
 #define USBD_SELF_POWERED     1U
-/*---------- -----------*/
-#define MSC_MEDIA_PACKET     512U
 
 /****************************************/
 /* #define for FS and HS identification */

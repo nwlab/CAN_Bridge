@@ -45,11 +45,27 @@
                             							
                             <tool id="cdt.managedbuild.tool.gnu.cross.c.compiler.452842504" name="Cross GCC Compiler" superClass="cdt.managedbuild.tool.gnu.cross.c.compiler">
                                 								
+                                <option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="gnu.c.compiler.option.preprocessor.def.symbols.1529352448" name="Defined symbols (-D)" superClass="gnu.c.compiler.option.preprocessor.def.symbols" useByScannerDiscovery="false" valueType="definedSymbols">
+                                    									
+                                    <listOptionValue builtIn="false" value="STM32F405xx"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="USE_HAL_DRIVER"/>
+                                    								
+                                </option>
+                                								
                                 <inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1906747091" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
                                 							
                             </tool>
                             							
                             <tool id="cdt.managedbuild.tool.gnu.cross.cpp.compiler.865540612" name="Cross G++ Compiler" superClass="cdt.managedbuild.tool.gnu.cross.cpp.compiler">
+                                								
+                                <option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="gnu.cpp.compiler.option.preprocessor.def.881916941" name="Defined symbols (-D)" superClass="gnu.cpp.compiler.option.preprocessor.def" useByScannerDiscovery="false" valueType="definedSymbols">
+                                    									
+                                    <listOptionValue builtIn="false" value="STM32F405xx"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="USE_HAL_DRIVER"/>
+                                    								
+                                </option>
                                 								
                                 <inputType id="cdt.managedbuild.tool.gnu.cpp.compiler.input.913292418" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.input"/>
                                 							
@@ -116,6 +132,30 @@
             <autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
             		
         </scannerConfigBuildInfo>
+        	
+    </storageModule>
+    	
+    <storageModule moduleId="org.eclipse.cdt.make.core.buildtargets">
+        		
+        <buildTargets>
+            			
+            <target name="base" path="Src" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+                				
+                <buildCommand>make</buildCommand>
+                				
+                <buildArguments/>
+                				
+                <buildTarget>base</buildTarget>
+                				
+                <stopOnError>true</stopOnError>
+                				
+                <useDefaultCommand>true</useDefaultCommand>
+                				
+                <runAllBuilders>true</runAllBuilders>
+                			
+            </target>
+            		
+        </buildTargets>
         	
     </storageModule>
     
