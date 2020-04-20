@@ -51,20 +51,22 @@
 #define X_CAN ((uint8_t)0x18u)  /**< Cancel. */
 #define X_C   ((uint8_t)0x43u)  /**< ASCII "C", to notify the host, we want to use CRC16. */
 
+#define X_TIMEOUT 5000u
+
 /* Status report for the functions. */
 typedef enum {
   X_OK            = 0x00u, /**< The action was successful. */
   X_ERROR_CRC     = 0x01u, /**< CRC calculation error. */
   X_ERROR_NUMBER  = 0x02u, /**< Packet number mismatch error. */
   X_ERROR_UART    = 0x04u, /**< UART communication error. */
-  X_ERROR_FLASH   = 0x06u, /**< Flash related error. */
+  X_ERROR_FLASH   = 0x08u, /**< Flash related error. */
   X_ERROR         = 0xFFu  /**< Generic error. */
 } xmodem_status;
 
 void xmodem_process(void);
 
 /* Extern functions */
-extern xmodem_status xmodem_receive(uint8_t *data, uint16_t length);
+extern xmodem_status xmodem_receive(uint8_t *data, uint16_t length, uint32_t timeout);
 extern xmodem_status xmodem_transmit_ch(uint8_t data);
 
 #endif /* XMODEM_H_ */

@@ -8,7 +8,10 @@
  */
 
 #include <stdio.h>
+#include "main.h"
 #include "xmodem.h"
+#include "nvs.h"
+#include "boot.h"
 
 /* Global variables. */
 static uint8_t xmodem_packet_number = 1u;         /**< Packet number counter. */
@@ -41,7 +44,7 @@ void xmodem_process(void)
     uint8_t header = 0x00u;
 
     /* Get the header from UART. */
-    xmodem_status comm_status = xmodem_receive(&header, 1u);
+    xmodem_status comm_status = xmodem_receive(&header, 1u, 1000);
 
     /* Spam the host (until we receive something) with ACSII "C", to notify it, we want to use CRC-16. */
     if ((X_OK != comm_status) && (false == x_first_packet_received))
@@ -72,7 +75,7 @@ void xmodem_process(void)
           (void)xmodem_transmit_ch(X_ACK);
         }
         /* If the error was flash related, then immediately set the error counter to max (graceful abort). */
-        else if (X_ERROR_FLASH == packet_status)
+        else if ( packet_status | X_ERROR_FLASH)
         {
           error_number = X_MAX_ERRORS;
           status = xmodem_error_handler(&error_number, X_MAX_ERRORS);
@@ -85,12 +88,22 @@ void xmodem_process(void)
         break;
       /* End of Transmission. */
       case X_EOT:
+      {
+        uint8_t  run_mode = LOADER_MODE_APP;
+        uint32_t bootaddr = FLASH_APP_START_ADDRESS;
         /* ACK, feedback to user (as a text), then jump to user application. */
         (void)xmodem_transmit_ch(X_ACK);
         printf("\n\rFirmware updated!\n\r");
-        printf("Jumping to user application...\n\r");
-        flash_jump_to_app();
+        nvs_put("boot", &run_mode, 1, 1);
+        nvs_put("bootaddr", (uint8_t*)&bootaddr, 4, 4);
+        if (nvs_commit() != NVS_OK)
+        {
+          INFO_MSG("flash commit failed");
+        }
+        printf("Jumping to user application ...\n\r");
+        jump_to_app(bootaddr);
         break;
+      }
       /* Abort from host. */
       case X_CAN:
         status = X_ERROR;
@@ -99,6 +112,7 @@ void xmodem_process(void)
         /* Wrong header. */
         if (X_OK == comm_status)
         {
+          DEBUG_MSG("Wrong header.");
           status = xmodem_error_handler(&error_number, X_MAX_ERRORS);
         }
         break;
@@ -160,21 +174,24 @@ static xmodem_status xmodem_handle_packet(uint8_t header)
   uint8_t received_data[X_PACKET_1024_SIZE + X_PACKET_DATA_INDEX + X_PACKET_CRC_SIZE];
 
   /* Get the packet (except for the header) from UART. */
-  xmodem_status comm_status = xmodem_receive(&received_data[0u], length);
+  xmodem_status comm_status = xmodem_receive(&received_data[0u], length, X_TIMEOUT);
   /* The last two bytes are the CRC from the host. */
   uint16_t crc_received = ((uint16_t)received_data[length-2u] << 8u) | ((uint16_t)received_data[length-1u]);
   /* We calculate it too. */
   uint16_t crc_calculated = xmodem_calc_crc(&received_data[X_PACKET_DATA_INDEX], size);
 
   /* If it is the first packet, then erase the memory. */
-  if (false == x_first_packet_received)
+  if (false == x_first_packet_received && X_OK == comm_status)
   {
+    DEBUG_MSG("Start erase the memory.");
     if (FLASH_OK == flash_erase(FLASH_APP_START_SECTOR))
     {
       x_first_packet_received = true;
+      DEBUG_MSG("Erase the memory success.");
     }
     else
     {
+      DEBUG_MSG("Erase the memory error.");
       status |= X_ERROR_FLASH;
     }
   }
@@ -185,29 +202,38 @@ static xmodem_status xmodem_handle_packet(uint8_t header)
     if (X_OK != comm_status)
     {
       /* UART error. */
+      DEBUG_MSG("UART error.");
       status |= X_ERROR_UART;
     }
     if (xmodem_packet_number != received_data[X_PACKET_NUMBER_INDEX])
     {
       /* Packet number counter mismatch. */
+      DEBUG_MSG("Packet number counter mismatch.(%d != %d), ", xmodem_packet_number, received_data[X_PACKET_NUMBER_INDEX]);
       status |= X_ERROR_NUMBER;
     }
     if (255u != (received_data[X_PACKET_NUMBER_INDEX] +  received_data[X_PACKET_NUMBER_COMPLEMENT_INDEX]))
     {
       /* The sum of the packet number and packet number complement aren't 255. */
       /* The sum always has to be 255. */
+      DEBUG_MSG("The sum of the packet number and packet number complement aren't 255.");
       status |= X_ERROR_NUMBER;
     }
     if (crc_calculated != crc_received)
     {
       /* The calculated and received CRC are different. */
+      DEBUG_MSG("The calculated and received CRC are different.");
       status |= X_ERROR_CRC;
     }
-    /* Do the actual flashing. */
-    if (FLASH_OK != flash_write(xmodem_actual_flash_address, (uint32_t*)&received_data[X_PACKET_DATA_INDEX], (uint32_t)size/4u))
+    if (X_OK == status)
     {
-      /* Flashing error. */
-      status |= X_ERROR_FLASH;
+      /* Do the actual flashing. */
+      DEBUG_MSG("Start flash the memory : 0x%08lX.", xmodem_actual_flash_address);
+      if (FLASH_OK != flash_write(xmodem_actual_flash_address, (uint32_t*)&received_data[X_PACKET_DATA_INDEX], (uint32_t)size/4u))
+      {
+        /* Flashing error. */
+        DEBUG_MSG("Flashing error.");
+        status |= X_ERROR_FLASH;
+      }
     }
   }
 
@@ -237,6 +263,7 @@ static xmodem_status xmodem_error_handler(uint8_t *error_number, uint8_t max_err
   if ((*error_number) >= max_error_number)
   {
     /* Graceful abort. */
+    DEBUG_MSG("Graceful abort.");
     (void)xmodem_transmit_ch(X_CAN);
     (void)xmodem_transmit_ch(X_CAN);
     status = X_ERROR;
@@ -244,6 +271,7 @@ static xmodem_status xmodem_error_handler(uint8_t *error_number, uint8_t max_err
   /* Otherwise send a NAK for a repeat. */
   else
   {
+    DEBUG_MSG("Otherwise send a NAK for a repeat.");
     (void)xmodem_transmit_ch(X_NAK);
     status = X_OK;
   }

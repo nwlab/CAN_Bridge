@@ -26,6 +26,7 @@ typedef enum {
 uart_status uart_receive(uint8_t *data, uint16_t length);
 uart_status uart_transmit_str(uint8_t *data);
 uart_status uart_transmit_ch(uint8_t data);
+void infinite_message(char* msg);
 
 
 #endif /* UART_H_ */

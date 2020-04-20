@@ -64,6 +64,7 @@ MEMORY
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
 CCMRAM (xrw)      : ORIGIN = 0x10000000, LENGTH = 64K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 1024K
+DATA (RWX)        : ORIGIN = 0x0800C000, LENGTH = 16k
 }
 
 /* Define output sections */
@@ -193,7 +194,13 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
-  
+  /* Boot configuration data */
+  .user_data :
+  {
+  . = ALIGN(4);
+     *(.user_data)
+  . = ALIGN(4);
+  } > DATA
 
   /* Remove information from the standard libraries */
   /DISCARD/ :

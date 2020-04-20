@@ -17,128 +17,43 @@
   *
   ******************************************************************************
   */
-/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_cdc_if.h"
-
-/* USER CODE BEGIN INCLUDE */
 #include "main.h"
-/* USER CODE END INCLUDE */
 
-/* Private typedef -----------------------------------------------------------*/
-/* Private define ------------------------------------------------------------*/
-/* Private macro -------------------------------------------------------------*/
+#define USB_BUSY_BREAK_THRESHOLD 0x07FFFF
 
-/* USER CODE BEGIN PV */
-/* Private variables ---------------------------------------------------------*/
-
-/* USER CODE END PV */
-
-/** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
-  * @brief Usb device library.
-  * @{
-  */
-
-/** @addtogroup USBD_CDC_IF
-  * @{
-  */
-
-/** @defgroup USBD_CDC_IF_Private_TypesDefinitions USBD_CDC_IF_Private_TypesDefinitions
-  * @brief Private types.
-  * @{
-  */
-
-/* USER CODE BEGIN PRIVATE_TYPES */
-
-/* USER CODE END PRIVATE_TYPES */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBD_CDC_IF_Private_Defines USBD_CDC_IF_Private_Defines
-  * @brief Private defines.
-  * @{
-  */
-
-/* USER CODE BEGIN PRIVATE_DEFINES */
 /* Define size for the receive and transmit buffer over CDC */
 /* It's up to user to redefine and/or remove those define */
-#define APP_RX_DATA_SIZE  2048
-#define APP_TX_DATA_SIZE  2048
-/* USER CODE END PRIVATE_DEFINES */
+//#define APP_RX_DATA_SIZE  2048
+//#define APP_TX_DATA_SIZE  2048
 
-/**
-  * @}
-  */
-
-/** @defgroup USBD_CDC_IF_Private_Macros USBD_CDC_IF_Private_Macros
-  * @brief Private macros.
-  * @{
-  */
-
-/* USER CODE BEGIN PRIVATE_MACRO */
-
-/* USER CODE END PRIVATE_MACRO */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBD_CDC_IF_Private_Variables USBD_CDC_IF_Private_Variables
-  * @brief Private variables.
-  * @{
-  */
 /* Create buffer for reception and transmission           */
 /* It's up to user to redefine and/or remove those define */
 /** Received data over USB are stored in this buffer      */
-uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
-
+//uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
 /** Data to send over USB CDC are stored in this buffer   */
-uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
-
-/* USER CODE BEGIN PRIVATE_VARIABLES */
-
-/* USER CODE END PRIVATE_VARIABLES */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBD_CDC_IF_Exported_Variables USBD_CDC_IF_Exported_Variables
-  * @brief Public variables.
-  * @{
-  */
+//uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
-/* USER CODE BEGIN EXPORTED_VARIABLES */
-
-/* USER CODE END EXPORTED_VARIABLES */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBD_CDC_IF_Private_FunctionPrototypes USBD_CDC_IF_Private_FunctionPrototypes
-  * @brief Private functions declaration.
-  * @{
-  */
+extern uint8_t USB_rx_buffer[];
+extern volatile uint8_t USB_rx_buffer_lead_ptr;
 
 static int8_t CDC_Init_FS(void);
 static int8_t CDC_DeInit_FS(void);
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
 static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
-/* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
-void LedG_Toggle(void);
 void RxQueuePut(uint8_t data);
-/* USER CODE END PRIVATE_FUNCTIONS_DECLARATION */
 
-/**
-  * @}
-  */
+USBD_CDC_LineCodingTypeDef LineCoding = {
+    115200 * 8, /* baud rate*/
+    0x00,       /* stop bits-1*/
+    0x00,       /* parity - none*/
+    0x08        /* nb. of bits 8*/
+};
 
 USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
 {
@@ -155,12 +70,13 @@ USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
   */
 static int8_t CDC_Init_FS(void)
 {
-  /* USER CODE BEGIN 3 */
   /* Set Application Buffers */
-  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+//  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
+//  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+  USB_rx_buffer_lead_ptr = 0;
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, USB_rx_buffer);
+
   return (USBD_OK);
-  /* USER CODE END 3 */
 }
 
 /**
@@ -169,9 +85,8 @@ static int8_t CDC_Init_FS(void)
   */
 static int8_t CDC_DeInit_FS(void)
 {
-  /* USER CODE BEGIN 4 */
+  USB_rx_buffer_lead_ptr = 0;
   return (USBD_OK);
-  /* USER CODE END 4 */
 }
 
 /**
@@ -183,7 +98,6 @@ static int8_t CDC_DeInit_FS(void)
   */
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 {
-  /* USER CODE BEGIN 5 */
   switch(cmd)
   {
     case CDC_SEND_ENCAPSULATED_COMMAND:
@@ -224,11 +138,20 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   /* 6      | bDataBits  |   1   | Number Data bits (5, 6, 7, 8 or 16).          */
   /*******************************************************************************/
     case CDC_SET_LINE_CODING:
-
+      LineCoding.bitrate    = (uint32_t)(pbuf[0] | (pbuf[1] << 8) | (pbuf[2] << 16) | (pbuf[3] << 24));
+      LineCoding.format     = pbuf[4];
+      LineCoding.paritytype = pbuf[5];
+      LineCoding.datatype   = pbuf[6];
     break;
 
     case CDC_GET_LINE_CODING:
-
+      pbuf[0] = (uint8_t)(LineCoding.bitrate);
+      pbuf[1] = (uint8_t)(LineCoding.bitrate >> 8);
+      pbuf[2] = (uint8_t)(LineCoding.bitrate >> 16);
+      pbuf[3] = (uint8_t)(LineCoding.bitrate >> 24);
+      pbuf[4] = LineCoding.format;
+      pbuf[5] = LineCoding.paritytype;
+      pbuf[6] = LineCoding.datatype;
     break;
 
     case CDC_SET_CONTROL_LINE_STATE:
@@ -244,7 +167,6 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   }
 
   return (USBD_OK);
-  /* USER CODE END 5 */
 }
 
 /**
@@ -263,14 +185,29 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   */
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
-  /* USER CODE BEGIN 6 */
+#if 0
   for (int i = 0; i < *Len; i++)
     RxQueuePut(Buf[i]);
 
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+#endif
+  __disable_irq();
+  if (USB_rx_buffer_lead_ptr == 0)
+  {
+    USB_rx_buffer_lead_ptr = (*Len);
+    if (USB_rx_buffer_lead_ptr == 0)
+    {
+      USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+    }
+  }
+  else
+  {
+    INFO_MSG("Receive traffic accident");
+  }
+  __enable_irq();
+
   return (USBD_OK);
-  /* USER CODE END 6 */
 }
 
 /**
@@ -287,28 +224,38 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 {
   uint8_t result = USBD_OK;
-  /* USER CODE BEGIN 7 */
+
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-  if (hcdc->TxState != 0){
-    return USBD_BUSY;
+  volatile uint32_t busy_times = 0;
+  while (1)
+  {
+      if (hcdc->TxState != 0) // USBD_BUSY
+      {
+          if (++busy_times > USB_BUSY_BREAK_THRESHOLD)
+          {
+            return USBD_BUSY;
+          }
+          else
+            continue;
+      }
+      else
+      {
+          break;
+      }
   }
+
+
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
   result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
 
-  /* USER CODE END 7 */
+  while (1)
+  {
+      if (hcdc->TxState == 0)
+        break;
+  }
+
   return result;
 }
 
-/* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
-/* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
+/****END OF FILE****/

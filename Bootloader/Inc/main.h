@@ -1,93 +1,83 @@
-/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.h
   * @brief          : Header for main.c file.
   *                   This file contains the common defines of the application.
   ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
-  *
-  ******************************************************************************
   */
-/* USER CODE END Header */
-
-/* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __MAIN_H
-#define __MAIN_H
+#ifndef _MAIN_H_
+#define _MAIN_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#include <stdio.h>
 #include "stm32f4xx_hal.h"
 
 /* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
+#include "bootloader-config.h"
+#include "uart.h"
 
 /* Exported types ------------------------------------------------------------*/
-/* USER CODE BEGIN ET */
-
-/* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
-
-/* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
+#if ( DEBUG == DEBUG_ENABLE )
+    /* printf definetion */
+    #define DEBUG_MSG( fmt, ...) \
+    do \
+    { \
+      printf( "[%08ld]%s:%d:%s(): " fmt "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+    }while( 0 );
+#else
+    #define DEBUG_MSG( fmt, ... )
+#endif
 
-/* USER CODE END EM */
+#if ( DEBUG == DEBUG_ENABLE )
+    /* printf definetion */
+    #define INFO_MSG( fmt, ...) \
+    do \
+    { \
+      printf( fmt "\r\n", ##__VA_ARGS__); \
+    }while( 0 );
+#else
+    #define INFO_MSG( fmt, ... )
+#endif
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
-
-/* USER CODE BEGIN EFP */
-
-/* USER CODE END EFP */
+void main_tick_1ms();
+void main_tick_5ms();
+void main_tick_10ms();
+void main_tick_50ms();
+void main_tick_100ms();
+void main_tick_500ms();
+void main_tick_1s();
 
 /* Private defines -----------------------------------------------------------*/
-/* USER CODE BEGIN Private defines */
 
-#define LEDG_PIN GPIO_PIN_7
+#define LEDG_PIN  GPIO_PIN_7
 #define LEDG_GPIO GPIOA
 
-#define LEDB_PIN GPIO_PIN_6
+#define LEDB_PIN  GPIO_PIN_6
 #define LEDB_GPIO GPIOA
 
-#define LEDR_PIN GPIO_PIN_5
+#define LEDR_PIN  GPIO_PIN_5
 #define LEDR_GPIO GPIOA
 
-#define FLASH_DISK_START_ADDRESS 0x08002800 /* Flash start address */
-#define BTN_Pin GPIO_PIN_0
-#define BTN_GPIO_Port GPIOA
-#define LD4_Pin GPIO_PIN_8
-#define LD4_GPIO_Port GPIOC
-#define LD3_Pin GPIO_PIN_9
-#define LD3_GPIO_Port GPIOC
-#define TMS_SWDIO_Pin GPIO_PIN_13
-#define TMS_SWDIO_GPIO_Port GPIOA
-#define TCK_SWCLK_Pin GPIO_PIN_14
-#define TCK_SWCLK_GPIO_Port GPIOA
+#define LOADER_PROTO_XMODEM      0xAA
+#define LOADER_PROTO_STORAGE     0x55
+#define LOADER_MODE_TEST         0x00
+#define LOADER_MODE_APP          0x12
+#define LOADER_MODE_FLASH        0x43
 
-
-/* USER CODE END Private defines */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __MAIN_H */
+#endif /* _MAIN_H_ */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

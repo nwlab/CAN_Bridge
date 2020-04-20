@@ -1,12 +1,10 @@
-/**
- * @file    uart.c
- * @author  Ferenc Nemeth
- * @date    21 Dec 2018
- * @brief   This module is a layer between the HAL UART functions and my Xmodem protocol.
- *
- *          Copyright (c) 2018 Ferenc Nemeth - https://github.com/ferenc-nemeth
- */
-
+/*******************************************************************************
+  * @file           : uart.c
+  * @author         : Andrii Iakovenko
+  * @date           : 27 Mar 2020
+  * @brief          : This module is a layer between the HAL UART functions and my Xmodem protocol.
+  ******************************************************************************/
+#include "main.h"
 #include "uart.h"
 
 #ifdef __GNUC__
@@ -104,4 +102,15 @@ uart_status uart_transmit_ch(uint8_t data)
     status = UART_OK;
   }
   return status;
+}
+
+void infinite_message(char* msg)
+{
+  for (;;)
+  {
+#if defined(UART_ENABLED)
+    uart_transmit_str((uint8_t *)msg);
+#endif
+    HAL_Delay(10000);
+  }
 }

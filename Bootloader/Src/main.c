@@ -1,178 +1,301 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
+/******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ *****************************************************************************/
 
 /* Includes ------------------------------------------------------------------*/
+#include "bootloader-config.h"
 #include "main.h"
 #include "fatfs.h"
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-#include "bootloader-config.h"
-#include "stm32f4xx_hal.h"
+#include "usbd_storage_if.h"
 #include "xmodem.h"
 #include "flash.h"
-/* USER CODE END Includes */
+#include "boot.h"
+#include "filesystem.h"
+#include "cardreader.h"
+#include "uart.h"
+#include "rx_queue.h"
+#include "nvs.h"
 
 /* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-/* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 SD_HandleTypeDef hsd;
-
+HAL_SD_CardInfoTypeDef SDCardInfo;
 UART_HandleTypeDef huart3;
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
-/* USER CODE BEGIN PV */
+volatile uint8_t gSystemInitialized = 0;
 
-/* USER CODE END PV */
+uint8_t USB_rx_buffer[0x200];
+volatile uint32_t USB_rx_buffer_lead_ptr = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_SDIO_SD_Init(void);
 static void MX_USART3_UART_Init(void);
 void RunTests(void);
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-void GoToUserApp(void)
-{
-	uint32_t appJumpAddress;
-	void (*GoToApp)(void);
-	appJumpAddress = *((volatile uint32_t*)(FLASH_APP_START_ADDRESS + 4));
-	GoToApp = (void (*)(void))appJumpAddress;
-	SCB->VTOR = FLASH_APP_START_ADDRESS;
-	__set_MSP(*((volatile uint32_t*) FLASH_APP_START_ADDRESS)); //stack pointer (to RAM) for USER app in this address
-	GoToApp();
-}
-/* USER CODE END 0 */
+void usb_rx_process(void);
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-  
+  uint8_t run_mode = LOADER_MODE_APP;
+  uint8_t flash_proto = LOADER_PROTO_XMODEM;
+  uint32_t bootaddr = FLASH_APP_START_ADDRESS;
+  uint16_t size = 0;
 
   /* MCU Configuration--------------------------------------------------------*/
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USB_DEVICE_Init();
-  MX_FATFS_Init();
-  MX_SDIO_SD_Init();
+#if defined(UART_ENABLED)
   MX_USART3_UART_Init();
-  /* USER CODE BEGIN 2 */
+#endif
+  nvs_init();
+  gSystemInitialized = 1;
+
+  // Reading state from MCU flash's NVR page
+  if (nvs_get("boot", &run_mode, &size, 1) == KEY_NOT_FOUND
+      || nvs_get("proto", &run_mode, &size, 1) == KEY_NOT_FOUND)
+  {
+    INFO_MSG("Set default configuration.");
+    run_mode = LOADER_MODE_FLASH;
+    flash_proto = LOADER_PROTO_XMODEM;
+    nvs_clear();
+    nvs_put("boot", &run_mode, 1, 1);
+    nvs_put("proto", &flash_proto, 1, 1);
+    if (nvs_commit() != NVS_OK)
+    {
+      INFO_MSG("flash commit failed");
+    }
+  }
 
 #if defined(UART_ENABLED)
-  printf("\n\r================================\n\r");
-  printf("USB/Xmodem Bootloader\n\r");
+  printf("================================\n\r");
+  printf("USB/Xmodem/MassStorage Bootloader\n\r");
   printf("https://github.com/nwlab/CAN_Bridge\n\r");
   printf("Based on https://github.com/ferenc-nemeth/stm32-bootloader\n\r");
   printf("================================\n\r");
   printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
-  printf("Flash base address : 0x%08lX\n\r", FLASH_BASE);
-  printf("Flash size :         0x%08lX\n\r", (FLASH_END - FLASH_BASE));
-  printf("User application start address : 0x%08lX\n\r", FLASH_APP_START_ADDRESS);
-  printf("================================\n\r\n\r");
+  INFO_MSG("CPU speed  : %ld MHz", SystemCoreClock / 1000000);
+  INFO_MSG("Flash size : %d kB", *(uint16_t* )(FLASHSIZE_BASE));
+  INFO_MSG("UID [HEX]  : %04lx %04lx %04lx", *(uint32_t* )(UID_BASE),
+      *(uint32_t* )(UID_BASE + 0x04), *(uint32_t* )(UID_BASE + 0x08));
+  INFO_MSG("Flash base address : 0x%08lX", FLASH_BASE);
+  INFO_MSG("Flash size :         0x%08lX", (FLASH_END - FLASH_BASE));
+  INFO_MSG("User application start address : 0x%08lX", FLASH_APP_START_ADDRESS);
+  INFO_MSG("User application start sector  : %d", FLASH_APP_START_SECTOR);
+  INFO_MSG("Configuration address          : 0x%08lX", FLASH_CFG_START_ADDRESS);
+  INFO_MSG("Run mode    : %s",
+      run_mode==LOADER_MODE_APP?"App":(run_mode==LOADER_MODE_FLASH?"Flasher":"Unknown"));
+  INFO_MSG("Flash proto : %s",
+      flash_proto==LOADER_PROTO_XMODEM?"xmodem":(flash_proto==LOADER_PROTO_STORAGE?"storage":"Unknown"));
+  printf("================================\n\r");
 #endif
+
+  if (run_mode == LOADER_MODE_APP)
+  {
+    if (nvs_get("bootaddr", (uint8_t*) &bootaddr, &size, 4) == KEY_NOT_FOUND)
+    {
+      bootaddr = FLASH_APP_START_ADDRESS;
+      nvs_put("bootaddr", (uint8_t*) &bootaddr, 4, 4);
+    }
+    INFO_MSG("Jumping to user application by addr : 0x%08lX...", bootaddr);
+    jump_to_app(bootaddr);
+  }
+
+  if (flash_proto == LOADER_PROTO_XMODEM)
+  {
+    INFO_MSG("Starting CDC USB.");
+    MX_USB_DEVICE_Init();
+    /* Infinite loop */
+    while (1)
+    {
+      /* Turn on the green LED to indicate, that we are in bootloader mode.*/
+      HAL_GPIO_WritePin(LEDR_GPIO, LEDR_PIN, GPIO_PIN_SET);
+      /* Ask for new data and start the Xmodem protocol. */
+      printf(
+          "Please send a new binary file with Xmodem protocol to update the firmware.\n\r");
+      xmodem_process();
+      /* We only exit the xmodem protocol, if there are any errors.
+       * In that case, notify the user and start over. */
+      printf("\n\rFailed... Please try again.\n\r");
+    }
+  }
+
+  if (flash_proto == LOADER_PROTO_STORAGE)
+  {
+#ifdef SDCARD_ENABLED
+    // Ok, something was programmed
+    // Enabling FAT FS
+    if (init_filesystem() != FILESYSTEM_INIT_OK)
+    {
+      // Cannot mount SD-card and pick FAT fs for some reason
+      // If nothing was programmed yet
+      INFO_MSG("Cannot mount file system or find file with flash");
+    }
+    else
+    {
+      // We have properly mounted FAT fs and now we should check hash sum of flash.bin
+      uint32_t storedHash, fileHash, trueHash, sizeHash;
+      HashCheckResult hcr = check_flash_file(&fileHash, &trueHash, &sizeHash);
+      switch (hcr)
+      {
+        case FLASH_FILE_OK:
+          // Check if no upgrade was provided
+          if (nvs_get("hash", (uint8_t*) &storedHash, &size, 4) == NVS_OK)
+          {
+            if (storedHash == fileHash)
+            {
+              INFO_MSG("Firmware is up-to-date, nothing to update");
+              break;
+            }
+          }
+          // Here we should flash our MCU
+          flash_status fr = flash_file();
+          switch (fr)
+          {
+            case FLASH_OK:
+            {
+              INFO_MSG("MCU successfuly programmed");
+              FRESULT res = f_unlink(flashFileName);
+              if (res != FR_OK)
+              {
+                INFO_MSG("Cannot delete firmware file");
+              }
+
+              run_mode = LOADER_MODE_APP;
+              nvs_put("hash", (uint8_t*) &fileHash, 4, 4);
+              nvs_put("boot", &run_mode, 1, 1);
+              if (nvs_commit() != NVS_OK)
+              {
+                INFO_MSG("flash commit failed");
+              }
+              break;
+            }
+            case FLASH_ERROR_FILE:
+              infinite_message("Flash error: cannot read file\n\r");
+              break;
+            case FLASH_ERROR_FLASH:
+              infinite_message(
+                  "Flash error: cannot write or erase flash memory. Maybe you MCU is totally broken\n\r");
+              break;
+            default:
+              break;
+          }
+          break;
+        case FLASH_FILE_NOT_EXISTS:
+        {
+          INFO_MSG("Flash file not exists on sd-card");
+          break;
+        }
+        case FLASH_FILE_CANNOT_OPEN:
+        {
+          INFO_MSG("Cannot read from flash file");
+          break;
+        }
+        case FLASH_FILE_INVALID_HASH:
+        {
+          INFO_MSG(
+              "Flash file hash is invalid: %lu against %lu specified in .ly file",
+              fileHash, trueHash);
+          break;
+        }
+        case FLASH_FILE_TOO_BIG:
+        {
+          INFO_MSG(
+              "Flash file is too big: %lu against %lu available in MCUDEBUG_MSG",
+              sizeHash, flash_image_size());
+          break;
+        }
+      }
+      deinit_filesystem();
+    }
+
+    INFO_MSG("Starting MassStorage USB.");
+    init_cardreader();
+    infinite_message("System in USB device mode\n\r");
+#else
+    infinite_message("MassStorage not supported.\n\r");
+#endif
+  }
 
   RunTests(); // this is function to run transmission tests
 
-  /* If the button is pressed, then jump to the user application,
-   * otherwise stay in the bootloader. */
-//  if(!HAL_GPIO_ReadPin(BTN_GPIO_Port, BTN_Pin))
-//  {
-//    printf("Jumping to user application...\n\r");
-//    flash_jump_to_app();
-//  }
-  /* USER CODE END 2 */
- 
- 
+}
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
+uint32_t toggle_time_r = 0;
+uint32_t toggle_time_g = 0;
+uint32_t toggle_time_b = 0;
+
+void main_tick_1ms()
+{
+}
+void main_tick_5ms()
+{
+  usb_rx_process();
+}
+void main_tick_10ms()
+{
+}
+void main_tick_50ms()
+{
+  if (toggle_time_r > 0)
   {
-    /* USER CODE END WHILE */
-    /* Turn on the green LED to indicate, that we are in bootloader mode.*/
-    HAL_GPIO_WritePin(LEDR_GPIO, LEDR_PIN, GPIO_PIN_SET);
-    /* Ask for new data and start the Xmodem protocol. */
-    printf("Please send a new binary file with Xmodem protocol to update the firmware.\n\r");
-    xmodem_process();
-    /* We only exit the xmodem protocol, if there are any errors.
-     * In that case, notify the user and start over. */
-    printf("\n\rFailed... Please try again.\n\r");
-    /* USER CODE BEGIN 3 */
+    HAL_GPIO_TogglePin(LEDR_GPIO, LEDR_PIN);
+    toggle_time_r--;
   }
-  /* USER CODE END 3 */
+  if (toggle_time_g > 0)
+  {
+    HAL_GPIO_TogglePin(LEDG_GPIO, LEDG_PIN);
+    toggle_time_g--;
+  }
+  if (toggle_time_b > 0)
+  {
+    HAL_GPIO_TogglePin(LEDB_GPIO, LEDB_PIN);
+    toggle_time_b--;
+  }
+}
+void main_tick_100ms()
+{
+}
+void main_tick_500ms()
+{
+}
+void main_tick_1s()
+{
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_OscInitTypeDef RCC_OscInitStruct =
+  { 0 };
+  RCC_ClkInitTypeDef RCC_ClkInitStruct =
+  { 0 };
 
-  /** Configure the main internal regulator output voltage 
-  */
+  /** Configure the main internal regulator output voltage
+   */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-  /** Initializes the CPU, AHB and APB busses clocks 
-  */
+  /** Initializes the CPU, AHB and APB busses clocks
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -185,10 +308,10 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  /** Initializes the CPU, AHB and APB busses clocks 
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  /** Initializes the CPU, AHB and APB busses clocks
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+      | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
@@ -201,58 +324,32 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief SDIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SDIO_SD_Init(void)
+ * @brief SDIO Initialization Function
+ * @param None
+ * @retval None
+ */
+void MX_SDIO_SD_Init(void)
 {
-
-  /* USER CODE BEGIN SDIO_Init 0 */
-
-  /* USER CODE END SDIO_Init 0 */
-
-  /* USER CODE BEGIN SDIO_Init 1 */
-
-  /* USER CODE END SDIO_Init 1 */
   hsd.Instance = SDIO;
   hsd.Init.ClockEdge = SDIO_CLOCK_EDGE_RISING;
   hsd.Init.ClockBypass = SDIO_CLOCK_BYPASS_DISABLE;
   hsd.Init.ClockPowerSave = SDIO_CLOCK_POWER_SAVE_DISABLE;
   hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
   hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd.Init.ClockDiv = 0;
-  if (HAL_SD_Init(&hsd) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_SD_ConfigWideBusOperation(&hsd, SDIO_BUS_WIDE_4B) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SDIO_Init 2 */
+//  hsd.Init.ClockDiv = 3;
 
-  /* USER CODE END SDIO_Init 2 */
-
+  hsd.Init.ClockDiv = SDIO_INIT_CLK_DIV;
 }
 
 /**
-  * @brief USART3 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART3 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART3_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
-  /* USER CODE BEGIN USART3_Init 1 */
-
-  /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = UART_BAUDRATE;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -263,20 +360,17 @@ static void MX_USART3_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART3_Init 2 */
-
-  /* USER CODE END USART3_Init 2 */
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitTypeDef GPIO_InitStruct =
+  { 0 };
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
@@ -286,38 +380,40 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
+      GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
 }
 
-/* USER CODE BEGIN 4 */
 //#define TEST_USB_TRANSMIT
 // if defined leds blink
 //#define TEST_BLINKY
 
+/*
+ *
+ */
 void RunTests()
 {
-  #ifdef TEST_BLINKY
+#ifdef TEST_BLINKY
 
     while(1)
     {
        // Toggle all LED
-      LedG_Toggle();
-      LedR_Toggle();
-      LedB_Toggle();
+      HAL_GPIO_TogglePin(LEDR_GPIO, LEDR_PIN);
+      HAL_GPIO_TogglePin(LEDG_GPIO, LEDG_PIN);
+      HAL_GPIO_TogglePin(LEDB_GPIO, LEDB_PIN);
        // Delay for 1sec
       HAL_Delay(1000);
     }
   #endif
 
-  #ifdef TEST_USB_TRANSMIT
+#ifdef TEST_USB_TRANSMIT
     while(1)
     {
       uint8_t data = 'A';
@@ -337,84 +433,76 @@ void RunTests()
     }
   #endif
 
-  #ifdef TEST_LISTEN_ONLY
-    while (1) if (RxQueueNotEmpty()) UART_ProcessData(RxQueueGet());
+#ifdef TEST_LISTEN_ONLY
+    while (1) if (rx_queue_not_empty()) UART_ProcessData(rx_queue_get());
   #endif
 }
-//----------------------------------------------------------------------------------------
-// Simple Queue implementation for serial port
 
-#define RX_QUEUE_LENGTH 64
-static uint8_t bRxQueue[RX_QUEUE_LENGTH];
-static int iRxQueueCount = 0;
-static int iRxQueueIn = 0;
-static int iRxQueueOut = 0;
-
-void RxQueuePut(uint8_t data)
+/*
+ *
+ */
+void usb_rx_process(void)
 {
-  if (iRxQueueCount < RX_QUEUE_LENGTH)
+  if (USB_rx_buffer_lead_ptr > 0)
   {
-    bRxQueue[iRxQueueIn] = data;
-    iRxQueueIn = iRxQueueIn + 1;
-    if (iRxQueueIn >= RX_QUEUE_LENGTH) iRxQueueIn = 0;
-    iRxQueueCount++;
-  }
-}
-
-uint8_t RxQueueGet()
-{
-  uint8_t data = 0;
-
-  if (iRxQueueCount > 0)
-  {
-    data = bRxQueue[iRxQueueOut];
-    iRxQueueOut = iRxQueueOut + 1;
-    if (iRxQueueOut >= RX_QUEUE_LENGTH) iRxQueueOut = 0;
-    iRxQueueCount--;
-  }
-
-  HAL_GPIO_WritePin(LEDG_GPIO, LEDG_PIN, GPIO_PIN_RESET);
-  return data;
-}
-
-uint8_t RxQueueNotEmpty() { return iRxQueueCount > 0; }
-
-xmodem_status xmodem_receive(uint8_t *data, uint16_t length)
-{
-  uint16_t i = 0;
-  while (i<length)
-  {
-    if (RxQueueNotEmpty())
+    for (uint32_t i = 0; i < USB_rx_buffer_lead_ptr; i++)
     {
-      data[i] = RxQueueGet();
-      i++;
+      rx_queue_put(USB_rx_buffer[i]);
     }
+    USB_rx_buffer_lead_ptr = 0;
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  }
+}
+
+/*
+ *
+ */
+xmodem_status xmodem_receive(uint8_t *data, uint16_t length, uint32_t timeout)
+{
+  // loop to read bytes
+  for (uint32_t i = 0; i < length; i++)
+  {
+    // Wait until we have at least 1 byte to read
+    uint32_t start = HAL_GetTick();
+    while (!rx_queue_not_empty())
+    {
+      // Wraparound of tick is taken care of by 2's complement arithmetic.
+      if (HAL_GetTick() - start >= timeout)
+      {
+        // timeout
+        DEBUG_MSG("UART receive timeout, length:%d, received:%ld", length, i);
+        return X_ERROR_UART;
+      }
+    }
+
+    // Copy byte from device to user buffer
+    data[i] = rx_queue_get();
+    toggle_time_g = 2;
   }
   return X_OK;
 }
 
+/*
+ *
+ */
 xmodem_status xmodem_transmit_ch(uint8_t data)
 {
-  HAL_GPIO_WritePin(LEDB_GPIO, LEDB_PIN, GPIO_PIN_SET);
   if (CDC_Transmit_FS(&data, 1) == USBD_OK)
   {
-    HAL_GPIO_WritePin(LEDB_GPIO, LEDB_PIN, GPIO_PIN_RESET);
+    toggle_time_b = 2;
     return X_OK;
   }
+  DEBUG_MSG("UART transmit error.");
   return X_ERROR_UART;
 }
-/* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-
-  /* USER CODE END Error_Handler_Debug */
+  INFO_MSG("HAL ERROR");
 }
 
 #ifdef  USE_FULL_ASSERT
@@ -427,11 +515,8 @@ void Error_Handler(void)
   */
 void assert_failed(uint8_t *file, uint32_t line)
 { 
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+  INFO_MSG("Wrong parameters value: file %s on line %d", file, line);
 }
 #endif /* USE_FULL_ASSERT */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
+/****END OF FILE****/

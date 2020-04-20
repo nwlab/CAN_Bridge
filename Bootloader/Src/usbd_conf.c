@@ -25,18 +25,9 @@
 #include "usbd_def.h"
 #include "usbd_core.h"
 
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
-
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
-
-/* USER CODE BEGIN PV */
-/* Private variables ---------------------------------------------------------*/
-
-/* USER CODE END PV */
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 void Error_Handler(void);
@@ -44,21 +35,8 @@ void Error_Handler(void);
 /* External functions --------------------------------------------------------*/
 void SystemClock_Config(void);
 
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
-
-/* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 USBD_StatusTypeDef USBD_Get_USB_Status(HAL_StatusTypeDef hal_status);
-
-/* USER CODE END PFP */
-
-/* Private functions ---------------------------------------------------------*/
-
-/* USER CODE BEGIN 1 */
-
-/* USER CODE END 1 */
 
 /*******************************************************************************
                        LL Driver Callbacks (PCD -> USB Device Library)
