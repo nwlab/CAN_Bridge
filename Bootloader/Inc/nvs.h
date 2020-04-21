@@ -1,10 +1,17 @@
-#ifndef __NVS_H
-#define __NVS_H
+/*******************************************************************************
+  * @file           : nvs.h
+  * @author         : Andrii Iakovenko
+  * @date           : 27 Mar 2020
+  * @brief          :
+  ******************************************************************************/
+#ifndef _NVS_H_
+#define _NVS_H_
 
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef enum nvs_result {
+typedef enum nvs_result
+{
     NVS_OK                             = 0x00,
     KEY_NOT_FOUND                      = 0x01,
     CAPACITY_NOT_ENOUGH                = 0x02,
@@ -22,7 +29,7 @@ nvs_result_t nvs_get(char const* key, uint8_t* dst, uint16_t* value_size, uint16
 nvs_result_t nvs_put(char const* key, uint8_t const* value, uint16_t value_size, uint16_t capacity_size);
 nvs_result_t nvs_del(char const* key);
 
-#endif
+#endif //  _NVS_H_
 
 
 

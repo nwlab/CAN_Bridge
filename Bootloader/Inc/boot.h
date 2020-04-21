@@ -2,7 +2,7 @@
   * @file           : boot.h
   * @author         : Andrii Iakovenko
   * @date           : 27 Mar 2020
-  * @brief          : Header for state.с file.
+  * @brief          : Header for boot.с file.
   ******************************************************************************/
 #ifndef _BOOT_H_
 #define _BOOT_H_

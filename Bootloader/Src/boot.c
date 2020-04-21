@@ -2,11 +2,12 @@
   * @file           : boot.c
   * @author         : Andrii Iakovenko
   * @date           : 27 Mar 2020
-  * @brief          : Header for state.с file.
+  * @brief          : Reboot and jump app functions implementation
   ******************************************************************************/
 #include <stdio.h>
 #include "main.h"
 #include "boot.h"
+#include "gpio.h"
 #include "bootloader-config.h"
 
 #ifdef UART_ENABLED
@@ -18,9 +19,10 @@ typedef void (*fnc_ptr)(void);
 
 /**
  * @brief   Actually jumps to the user application.
- * @param   void
+ * @param   appJumpAddress
  * @return  void
  */
+__attribute__ ((noreturn))
 void jump_to_app(uint32_t appJumpAddress)
 {
   /* Function pointer to the address of the user application. */
@@ -29,6 +31,7 @@ void jump_to_app(uint32_t appJumpAddress)
 
   /* Deinit all modules*/
   HAL_RCC_DeInit();
+  GPIO_DeInit();
   HAL_DeInit();
   /* Change the main stack pointer. */
   __set_MSP(*(volatile uint32_t*)FLASH_APP_START_ADDRESS);

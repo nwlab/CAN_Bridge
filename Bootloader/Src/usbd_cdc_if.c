@@ -46,8 +46,6 @@ static int8_t CDC_DeInit_FS(void);
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
 static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
-void RxQueuePut(uint8_t data);
-
 USBD_CDC_LineCodingTypeDef LineCoding = {
     115200 * 8, /* baud rate*/
     0x00,       /* stop bits-1*/

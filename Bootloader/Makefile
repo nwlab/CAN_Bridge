@@ -22,7 +22,7 @@ TARGET = Bootloader
 # debug build?
 DEBUG = 0
 # optimization
-OPT = -O2
+OPT = -Os
 
 
 #######################################
@@ -36,9 +36,6 @@ BUILD_DIR = build
 ######################################
 # C sources
 C_SOURCES =  \
-Src/main.c \
-Src/stm32f4xx_it.c \
-Src/stm32f4xx_hal_msp.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd_ex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_usb.c \
@@ -57,41 +54,20 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
-Src/system_stm32f4xx.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_crc.c \
 Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c \
 Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ctlreq.c \
 Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c \
-Src/fatfs.c \
+Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c \
 Middlewares/Third_Party/FatFs/src/diskio.c \
 Middlewares/Third_Party/FatFs/src/ff.c \
 Middlewares/Third_Party/FatFs/src/ff_gen_drv.c \
 Middlewares/Third_Party/FatFs/src/option/syscall.c \
-Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c \
-Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c \
-Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c \
-Src/uart.c \
-Src/xmodem.c \
-Src/rx_queue.c \
-Src/flash.c \
-Src/boot.c \
-Src/filesystem.c \
-Src/cardreader.c \
-Src/usb_device.c \
-Src/usbd_conf.c \
-Src/usbd_desc.c \
-Src/usbd_cdc_if.c \
-Src/usb_storage_device.c \
-Src/usbd_storage_desc.c \
-Src/usbd_storage_if.c \
-Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c \
-Middlewares/ST/STM32_USB_Device_Library/Class/MSC/Src/usbd_msc.c \
-Middlewares/ST/STM32_USB_Device_Library/Class/MSC/Src/usbd_msc_bot.c \
-Middlewares/ST/STM32_USB_Device_Library/Class/MSC/Src/usbd_msc_data.c \
-Middlewares/ST/STM32_USB_Device_Library/Class/MSC/Src/usbd_msc_scsi.c \
-Src/bsp_driver_sd.c \
-Src/sd_diskio.c \
 Middlewares/Third_Party/FatFs/src/option/ccsbcs.c \
-Src/nvs.c 
+$(wildcard Src/*.c)
 
 # ASM sources
 ASM_SOURCES =  \
@@ -156,8 +132,7 @@ C_INCLUDES =  \
 -IDrivers/CMSIS/Include \
 -IDrivers/CMSIS/Include \
 -IMiddlewares/Third_Party/FatFs/src \
--IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc \
--IMiddlewares/ST/STM32_USB_Device_Library/Class/MSC/Inc
+-IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
 
 # compile gcc flags
 ASFLAGS = $(MCU) $(AS_DEFS) $(AS_INCLUDES) $(OPT) -Wall -fdata-sections -ffunction-sections
@@ -177,7 +152,7 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 # LDFLAGS
 #######################################
 # link script
-LDSCRIPT = STM32F405RGTx_FLASH.ld
+LDSCRIPT = ld/STM32F405RGTx_FLASH.ld
 
 # libraries
 LIBS = -lc -lm -lnosys 

@@ -15,6 +15,8 @@
 #define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
 #endif /* __GNUC__ */
 
+UART_HandleTypeDef huart3;
+
 /**
   * @brief  Retargets the C library printf function to the USART.
   * @param  None
@@ -112,5 +114,26 @@ void infinite_message(char* msg)
     uart_transmit_str((uint8_t *)msg);
 #endif
     HAL_Delay(10000);
+  }
+}
+
+/**
+ * @brief USART3 Initialization Function
+ * @param None
+ * @retval None
+ */
+void UART_Init(void)
+{
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = UART_BAUDRATE;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
   }
 }

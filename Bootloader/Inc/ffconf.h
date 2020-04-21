@@ -26,7 +26,6 @@
 
 #include "main.h"
 #include "stm32f4xx_hal.h"
-#include "bsp_driver_sd.h"
 
 /*-----------------------------------------------------------------------------/
 / Function Configurations

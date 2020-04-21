@@ -1,10 +1,8 @@
-/**
-  ******************************************************************************
+/*******************************************************************************
   * @file           : main.h
   * @brief          : Header for main.c file.
   *                   This file contains the common defines of the application.
-  ******************************************************************************
-  */
+  ******************************************************************************/
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
@@ -59,21 +57,9 @@ void main_tick_1s();
 
 /* Private defines -----------------------------------------------------------*/
 
-#define LEDG_PIN  GPIO_PIN_7
-#define LEDG_GPIO GPIOA
-
-#define LEDB_PIN  GPIO_PIN_6
-#define LEDB_GPIO GPIOA
-
-#define LEDR_PIN  GPIO_PIN_5
-#define LEDR_GPIO GPIOA
-
-#define LOADER_PROTO_XMODEM      0xAA
-#define LOADER_PROTO_STORAGE     0x55
 #define LOADER_MODE_TEST         0x00
 #define LOADER_MODE_APP          0x12
 #define LOADER_MODE_FLASH        0x43
-
 
 #ifdef __cplusplus
 }

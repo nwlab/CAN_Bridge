@@ -1,14 +1,11 @@
-/**
- * @file    flash.h
- * @author  Ferenc Nemeth
- * @date    21 Dec 2018
- * @brief   This module handles the memory related functions.
- *
- *          Copyright (c) 2018 Ferenc Nemeth - https://github.com/ferenc-nemeth
- */
-
-#ifndef FLASH_H_
-#define FLASH_H_
+/*******************************************************************************
+  * @file           : flash.h
+  * @author         : Andrii Iakovenko
+  * @date           : 27 Mar 2020
+  * @brief          : This module handles the flash related functions.
+  ******************************************************************************/
+#ifndef _FLASH_H_
+#define _FLASH_H_
 
 #include <stdint.h>
 #include "stm32f4xx_hal.h"
@@ -47,4 +44,4 @@ uint32_t flash_image_size();
 HashCheckResult check_flash_file(uint32_t *hash, uint32_t *trueHash, uint32_t *flashFileSize);
 #endif
 
-#endif /* FLASH_H_ */
+#endif /* _FLASH_H_ */

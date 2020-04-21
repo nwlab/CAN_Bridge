@@ -9,15 +9,15 @@
 #include "fatfs.h"
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
-#include "usbd_storage_if.h"
 #include "xmodem.h"
 #include "flash.h"
 #include "boot.h"
 #include "filesystem.h"
-#include "cardreader.h"
 #include "uart.h"
 #include "rx_queue.h"
 #include "nvs.h"
+#include "gpio.h"
+#include "crc.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -26,9 +26,6 @@
 /* Private macro -------------------------------------------------------------*/
 
 /* Private variables ---------------------------------------------------------*/
-SD_HandleTypeDef hsd;
-HAL_SD_CardInfoTypeDef SDCardInfo;
-UART_HandleTypeDef huart3;
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
 volatile uint8_t gSystemInitialized = 0;
@@ -38,9 +35,7 @@ volatile uint32_t USB_rx_buffer_lead_ptr = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_USART3_UART_Init(void);
-void RunTests(void);
+void run_tests(void);
 void usb_rx_process(void);
 
 /**
@@ -50,7 +45,6 @@ void usb_rx_process(void);
 int main(void)
 {
   uint8_t run_mode = LOADER_MODE_APP;
-  uint8_t flash_proto = LOADER_PROTO_XMODEM;
   uint32_t bootaddr = FLASH_APP_START_ADDRESS;
   uint16_t size = 0;
 
@@ -59,24 +53,26 @@ int main(void)
   HAL_Init();
   /* Configure the system clock */
   SystemClock_Config();
+  HAL_Delay(50);
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
+  GPIO_Init();
 #if defined(UART_ENABLED)
-  MX_USART3_UART_Init();
+  UART_Init();
 #endif
+  CRC_Init();
   nvs_init();
   gSystemInitialized = 1;
 
   // Reading state from MCU flash's NVR page
-  if (nvs_get("boot", &run_mode, &size, 1) == KEY_NOT_FOUND
-      || nvs_get("proto", &run_mode, &size, 1) == KEY_NOT_FOUND)
+  if (nvs_get("boot", &run_mode, &size, 1) == KEY_NOT_FOUND ||
+      nvs_get("bootaddr", (uint8_t*) &bootaddr, &size, 4) == KEY_NOT_FOUND)
   {
     INFO_MSG("Set default configuration.");
     run_mode = LOADER_MODE_FLASH;
-    flash_proto = LOADER_PROTO_XMODEM;
+    bootaddr = FLASH_APP_START_ADDRESS;
     nvs_clear();
     nvs_put("boot", &run_mode, 1, 1);
-    nvs_put("proto", &flash_proto, 1, 1);
+    nvs_put("bootaddr", (uint8_t*) &bootaddr, 4, 4);
     if (nvs_commit() != NVS_OK)
     {
       INFO_MSG("flash commit failed");
@@ -88,6 +84,7 @@ int main(void)
   printf("USB/Xmodem/MassStorage Bootloader\n\r");
   printf("https://github.com/nwlab/CAN_Bridge\n\r");
   printf("Based on https://github.com/ferenc-nemeth/stm32-bootloader\n\r");
+  printf("and https://github.com/smihica/stm32-iap-by-usbserial-bootloader\n\r");
   printf("================================\n\r");
   printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
   INFO_MSG("CPU speed  : %ld MHz", SystemCoreClock / 1000000);
@@ -96,145 +93,124 @@ int main(void)
       *(uint32_t* )(UID_BASE + 0x04), *(uint32_t* )(UID_BASE + 0x08));
   INFO_MSG("Flash base address : 0x%08lX", FLASH_BASE);
   INFO_MSG("Flash size :         0x%08lX", (FLASH_END - FLASH_BASE));
-  INFO_MSG("User application start address : 0x%08lX", FLASH_APP_START_ADDRESS);
-  INFO_MSG("User application start sector  : %d", FLASH_APP_START_SECTOR);
-  INFO_MSG("Configuration address          : 0x%08lX", FLASH_CFG_START_ADDRESS);
+  INFO_MSG("Boot address :       0x%08lX", bootaddr);
+  INFO_MSG("Config address :     0x%08lX", FLASH_CFG_START_ADDRESS);
   INFO_MSG("Run mode    : %s",
       run_mode==LOADER_MODE_APP?"App":(run_mode==LOADER_MODE_FLASH?"Flasher":"Unknown"));
-  INFO_MSG("Flash proto : %s",
-      flash_proto==LOADER_PROTO_XMODEM?"xmodem":(flash_proto==LOADER_PROTO_STORAGE?"storage":"Unknown"));
   printf("================================\n\r");
 #endif
 
+  if (init_filesystem() == FILESYSTEM_INIT_OK)
+  {
+    // Testing flash file existance
+    FRESULT res = f_stat("xmodem", NULL);
+    if (res == FR_OK)
+    {
+      INFO_MSG("xmodem file exists on sd-card");
+      run_mode = LOADER_MODE_FLASH;
+    }
+
+    // We have properly mounted FAT fs and now we should check hash sum of flash.bin
+    uint32_t storedHash, fileHash, trueHash, sizeHash;
+    HashCheckResult hcr = check_flash_file(&fileHash, &trueHash, &sizeHash);
+    switch (hcr)
+    {
+      case FLASH_FILE_OK:
+        // Check if no upgrade was provided
+        if (nvs_get("hash", (uint8_t*) &storedHash, &size, 4) == NVS_OK)
+        {
+          if (storedHash == fileHash)
+          {
+            INFO_MSG("Firmware is up-to-date, nothing to update");
+            break;
+          }
+        }
+        // Here we should flash our MCU
+        flash_status fr = flash_file();
+        switch (fr)
+        {
+          case FLASH_OK:
+          {
+            INFO_MSG("MCU successfuly programmed");
+            FRESULT res = f_unlink(flashFileName);
+            if (res != FR_OK)
+            {
+              INFO_MSG("Cannot delete firmware file");
+            }
+
+            run_mode = LOADER_MODE_APP;
+            nvs_put("hash", (uint8_t*) &fileHash, 4, 4);
+            nvs_put("boot", &run_mode, 1, 1);
+            if (nvs_commit() != NVS_OK)
+            {
+              INFO_MSG("flash commit failed");
+            }
+            break;
+          }
+          case FLASH_ERROR_FILE:
+            infinite_message("Flash error: cannot read file\n\r");
+            break;
+          case FLASH_ERROR_FLASH:
+            infinite_message("Flash error: cannot write or erase flash memory. Maybe you MCU is totally broken\n\r");
+            break;
+          default:
+            break;
+        }
+        break;
+      case FLASH_FILE_NOT_EXISTS:
+      {
+        INFO_MSG("Flash file not exists on sd-card");
+        break;
+      }
+      case FLASH_FILE_CANNOT_OPEN:
+      {
+        INFO_MSG("Cannot read from flash file");
+        break;
+      }
+      case FLASH_FILE_INVALID_HASH:
+      {
+        INFO_MSG("Flash file hash is invalid: %lu against %lu specified in .ly file", fileHash, trueHash);
+        break;
+      }
+      case FLASH_FILE_TOO_BIG:
+      {
+        INFO_MSG("Flash file is too big: %lu against %lu available in MCUDEBUG_MSG", sizeHash, flash_image_size());
+        break;
+      }
+    }
+    deinit_filesystem();
+  }
+
   if (run_mode == LOADER_MODE_APP)
   {
-    if (nvs_get("bootaddr", (uint8_t*) &bootaddr, &size, 4) == KEY_NOT_FOUND)
-    {
-      bootaddr = FLASH_APP_START_ADDRESS;
-      nvs_put("bootaddr", (uint8_t*) &bootaddr, 4, 4);
-    }
-    INFO_MSG("Jumping to user application by addr : 0x%08lX...", bootaddr);
+    printf("Jumping to user application ...\n\r");
     jump_to_app(bootaddr);
   }
 
-  if (flash_proto == LOADER_PROTO_XMODEM)
+  run_tests(); // this is function to run transmission tests
+
   {
     INFO_MSG("Starting CDC USB.");
     MX_USB_DEVICE_Init();
+
+    /* Reset USB DP (D+) */
+    HAL_GPIO_WritePin(USB_RESET_GPIO, USB_RESET_PIN, GPIO_PIN_RESET);
+    HAL_Delay(20);
+    HAL_GPIO_WritePin(USB_RESET_GPIO, USB_RESET_PIN, GPIO_PIN_SET);
+
     /* Infinite loop */
     while (1)
     {
       /* Turn on the green LED to indicate, that we are in bootloader mode.*/
       HAL_GPIO_WritePin(LEDR_GPIO, LEDR_PIN, GPIO_PIN_SET);
       /* Ask for new data and start the Xmodem protocol. */
-      printf(
-          "Please send a new binary file with Xmodem protocol to update the firmware.\n\r");
+      printf("Please send a new binary file with Xmodem protocol to update the firmware.\n\r");
       xmodem_process();
       /* We only exit the xmodem protocol, if there are any errors.
        * In that case, notify the user and start over. */
       printf("\n\rFailed... Please try again.\n\r");
     }
   }
-
-  if (flash_proto == LOADER_PROTO_STORAGE)
-  {
-#ifdef SDCARD_ENABLED
-    // Ok, something was programmed
-    // Enabling FAT FS
-    if (init_filesystem() != FILESYSTEM_INIT_OK)
-    {
-      // Cannot mount SD-card and pick FAT fs for some reason
-      // If nothing was programmed yet
-      INFO_MSG("Cannot mount file system or find file with flash");
-    }
-    else
-    {
-      // We have properly mounted FAT fs and now we should check hash sum of flash.bin
-      uint32_t storedHash, fileHash, trueHash, sizeHash;
-      HashCheckResult hcr = check_flash_file(&fileHash, &trueHash, &sizeHash);
-      switch (hcr)
-      {
-        case FLASH_FILE_OK:
-          // Check if no upgrade was provided
-          if (nvs_get("hash", (uint8_t*) &storedHash, &size, 4) == NVS_OK)
-          {
-            if (storedHash == fileHash)
-            {
-              INFO_MSG("Firmware is up-to-date, nothing to update");
-              break;
-            }
-          }
-          // Here we should flash our MCU
-          flash_status fr = flash_file();
-          switch (fr)
-          {
-            case FLASH_OK:
-            {
-              INFO_MSG("MCU successfuly programmed");
-              FRESULT res = f_unlink(flashFileName);
-              if (res != FR_OK)
-              {
-                INFO_MSG("Cannot delete firmware file");
-              }
-
-              run_mode = LOADER_MODE_APP;
-              nvs_put("hash", (uint8_t*) &fileHash, 4, 4);
-              nvs_put("boot", &run_mode, 1, 1);
-              if (nvs_commit() != NVS_OK)
-              {
-                INFO_MSG("flash commit failed");
-              }
-              break;
-            }
-            case FLASH_ERROR_FILE:
-              infinite_message("Flash error: cannot read file\n\r");
-              break;
-            case FLASH_ERROR_FLASH:
-              infinite_message(
-                  "Flash error: cannot write or erase flash memory. Maybe you MCU is totally broken\n\r");
-              break;
-            default:
-              break;
-          }
-          break;
-        case FLASH_FILE_NOT_EXISTS:
-        {
-          INFO_MSG("Flash file not exists on sd-card");
-          break;
-        }
-        case FLASH_FILE_CANNOT_OPEN:
-        {
-          INFO_MSG("Cannot read from flash file");
-          break;
-        }
-        case FLASH_FILE_INVALID_HASH:
-        {
-          INFO_MSG(
-              "Flash file hash is invalid: %lu against %lu specified in .ly file",
-              fileHash, trueHash);
-          break;
-        }
-        case FLASH_FILE_TOO_BIG:
-        {
-          INFO_MSG(
-              "Flash file is too big: %lu against %lu available in MCUDEBUG_MSG",
-              sizeHash, flash_image_size());
-          break;
-        }
-      }
-      deinit_filesystem();
-    }
-
-    INFO_MSG("Starting MassStorage USB.");
-    init_cardreader();
-    infinite_message("System in USB device mode\n\r");
-#else
-    infinite_message("MassStorage not supported.\n\r");
-#endif
-  }
-
-  RunTests(); // this is function to run transmission tests
-
 }
 
 uint32_t toggle_time_r = 0;
@@ -257,16 +233,22 @@ void main_tick_50ms()
   {
     HAL_GPIO_TogglePin(LEDR_GPIO, LEDR_PIN);
     toggle_time_r--;
+    if (toggle_time_r == 0)
+      HAL_GPIO_WritePin(LEDR_GPIO, LEDR_PIN, GPIO_PIN_RESET);
   }
   if (toggle_time_g > 0)
   {
     HAL_GPIO_TogglePin(LEDG_GPIO, LEDG_PIN);
     toggle_time_g--;
+    if (toggle_time_g == 0)
+      HAL_GPIO_WritePin(LEDG_GPIO, LEDG_PIN, GPIO_PIN_RESET);
   }
   if (toggle_time_b > 0)
   {
     HAL_GPIO_TogglePin(LEDB_GPIO, LEDB_PIN);
     toggle_time_b--;
+    if (toggle_time_b == 0)
+      HAL_GPIO_WritePin(LEDB_GPIO, LEDB_PIN, GPIO_PIN_RESET);
   }
 }
 void main_tick_100ms()
@@ -285,10 +267,8 @@ void main_tick_1s()
  */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct =
-  { 0 };
-  RCC_ClkInitTypeDef RCC_ClkInitStruct =
-  { 0 };
+  RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
   /** Configure the main internal regulator output voltage
    */
@@ -323,82 +303,14 @@ void SystemClock_Config(void)
   }
 }
 
-/**
- * @brief SDIO Initialization Function
- * @param None
- * @retval None
- */
-void MX_SDIO_SD_Init(void)
-{
-  hsd.Instance = SDIO;
-  hsd.Init.ClockEdge = SDIO_CLOCK_EDGE_RISING;
-  hsd.Init.ClockBypass = SDIO_CLOCK_BYPASS_DISABLE;
-  hsd.Init.ClockPowerSave = SDIO_CLOCK_POWER_SAVE_DISABLE;
-  hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
-  hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
-//  hsd.Init.ClockDiv = 3;
-
-  hsd.Init.ClockDiv = SDIO_INIT_CLK_DIV;
-}
-
-/**
- * @brief USART3 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_USART3_UART_Init(void)
-{
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = UART_BAUDRATE;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct =
-  { 0 };
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
-      GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-}
-
 //#define TEST_USB_TRANSMIT
 // if defined leds blink
 //#define TEST_BLINKY
 
 /*
- *
+ * Tests
  */
-void RunTests()
+void run_tests()
 {
 #ifdef TEST_BLINKY
 
@@ -439,7 +351,7 @@ void RunTests()
 }
 
 /*
- *
+ * Receive data from USB
  */
 void usb_rx_process(void)
 {
@@ -470,7 +382,6 @@ xmodem_status xmodem_receive(uint8_t *data, uint16_t length, uint32_t timeout)
       if (HAL_GetTick() - start >= timeout)
       {
         // timeout
-        DEBUG_MSG("UART receive timeout, length:%d, received:%ld", length, i);
         return X_ERROR_UART;
       }
     }

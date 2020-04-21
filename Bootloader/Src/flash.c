@@ -261,8 +261,8 @@ flash_status flash_file()
       return FLASH_ERROR_WRITE;
     }
     position += bufferLen;
-    INFO_MSG("Page at %lX written", position);
   } while (bufferLen != 0);
+
   f_close(&fil);
 
   return FLASH_OK;

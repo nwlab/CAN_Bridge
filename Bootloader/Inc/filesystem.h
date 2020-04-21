@@ -1,12 +1,11 @@
-/*
- * filesystem.h
- *
- *  Created on: 5 сент. 2016 г.
- *      Author: alexey
- */
-
-#ifndef BOOTLOADER_USB_BOOTLOADER_USB_INC_FILESYSTEM_H_
-#define BOOTLOADER_USB_BOOTLOADER_USB_INC_FILESYSTEM_H_
+/*******************************************************************************
+  * @file           : filesystem.h
+  * @author         : Andrii Iakovenko
+  * @date           : 27 Mar 2020
+  * @brief          : Header for filesystem.с file.
+  ******************************************************************************/
+#ifndef _FILESYSTEM_H_
+#define _FILESYSTEM_H_
 
 #include <stdint.h>
 
@@ -16,7 +15,4 @@
 uint8_t init_filesystem();
 void deinit_filesystem();
 
-
-
-
-#endif /* BOOTLOADER_USB_BOOTLOADER_USB_INC_FILESYSTEM_H_ */
+#endif /* _FILESYSTEM_H_ */
