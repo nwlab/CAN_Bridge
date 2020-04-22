@@ -1,36 +1,23 @@
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file           : USB_DEVICE  
+  * @file           : usb_device.c
   * @version        : v1.0_Cube
-  * @brief          : This file implements the USB Device 
+  * @brief          : This file implements the USB Device
   ******************************************************************************
+  * @attention
   *
-  * COPYRIGHT(c) 2016 STMicroelectronics
+  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
+  * All rights reserved.</center></h2>
   *
-  * Redistribution and use in source and binary forms, with or without modification,
-  * are permitted provided that the following conditions are met:
-  * 1. Redistributions of source code must retain the above copyright notice,
-  * this list of conditions and the following disclaimer.
-  * 2. Redistributions in binary form must reproduce the above copyright notice,
-  * this list of conditions and the following disclaimer in the documentation
-  * and/or other materials provided with the distribution.
-  * 3. Neither the name of STMicroelectronics nor the names of its contributors
-  * may be used to endorse or promote products derived from this software
-  * without specific prior written permission.
-  *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * This software component is licensed by ST under Ultimate Liberty license
+  * SLA0044, the "License"; You may not use this file except in compliance with
+  * the License. You may obtain a copy of the License at:
+  *                             www.st.com/SLA0044
   *
   ******************************************************************************
-*/
+  */
+/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 
@@ -40,22 +27,70 @@
 #include "usbd_cdc.h"
 #include "usbd_cdc_if.h"
 
-/* USB Device Core handle declaration */
+/* USER CODE BEGIN Includes */
+
+/* USER CODE END Includes */
+
+/* USER CODE BEGIN PV */
+/* Private variables ---------------------------------------------------------*/
+
+/* USER CODE END PV */
+
+/* USER CODE BEGIN PFP */
+/* Private function prototypes -----------------------------------------------*/
+
+/* USER CODE END PFP */
+
+/* USB Device Core handle declaration. */
 USBD_HandleTypeDef hUsbDeviceFS;
 
-/* init function */				        
+/*
+ * -- Insert your variables declaration here --
+ */
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
+/*
+ * -- Insert your external function declaration here --
+ */
+/* USER CODE BEGIN 1 */
+
+/* USER CODE END 1 */
+
+/**
+  * Init USB device Library, add supported class and start the library
+  * @retval None
+  */
 void MX_USB_DEVICE_Init(void)
 {
-  /* Init Device Library,Add Supported Class and Start the library*/
-  USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+  /* USER CODE BEGIN USB_DEVICE_Init_PreTreatment */
+  
+  /* USER CODE END USB_DEVICE_Init_PreTreatment */
+  
+  /* Init Device Library, add supported class and start the library. */
+  if (USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS) != USBD_OK)
+  {
+    Error_Handler();
+  }
+  if (USBD_RegisterClass(&hUsbDeviceFS, &USBD_CDC) != USBD_OK)
+  {
+    Error_Handler();
+  }
+  if (USBD_CDC_RegisterInterface(&hUsbDeviceFS, &USBD_Interface_fops_FS) != USBD_OK)
+  {
+    Error_Handler();
+  }
+  if (USBD_Start(&hUsbDeviceFS) != USBD_OK)
+  {
+    Error_Handler();
+  }
 
-  USBD_RegisterClass(&hUsbDeviceFS, &USBD_CDC);
-
-  USBD_CDC_RegisterInterface(&hUsbDeviceFS, &USBD_Interface_fops_FS);
-
-  USBD_Start(&hUsbDeviceFS);
-
+  /* USER CODE BEGIN USB_DEVICE_Init_PostTreatment */
+  
+  /* USER CODE END USB_DEVICE_Init_PostTreatment */
 }
+
 /**
   * @}
   */

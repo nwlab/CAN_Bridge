@@ -1,50 +1,53 @@
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * File Name          : main.c
-  * Description        : Main program body
+  * @file           : main.c
+  * @brief          : Main program body
   ******************************************************************************
+  * @attention
   *
-  * COPYRIGHT(c) 2016 STMicroelectronics
+  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
+  * All rights reserved.</center></h2>
   *
-  * Redistribution and use in source and binary forms, with or without modification,
-  * are permitted provided that the following conditions are met:
-  *   1. Redistributions of source code must retain the above copyright notice,
-  *      this list of conditions and the following disclaimer.
-  *   2. Redistributions in binary form must reproduce the above copyright notice,
-  *      this list of conditions and the following disclaimer in the documentation
-  *      and/or other materials provided with the distribution.
-  *   3. Neither the name of STMicroelectronics nor the names of its contributors
-  *      may be used to endorse or promote products derived from this software
-  *      without specific prior written permission.
-  *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * This software component is licensed by ST under Ultimate Liberty license
+  * SLA0044, the "License"; You may not use this file except in compliance with
+  * the License. You may obtain a copy of the License at:
+  *                             www.st.com/SLA0044
   *
   ******************************************************************************
   */
+/* USER CODE END Header */
+
 /* Includes ------------------------------------------------------------------*/
-#ifdef STM32F405xx
-#include "stm32f4xx_hal.h"
-#else
-#include "stm32f1xx_hal.h"
-#endif
+#include "main.h"
+#include "fatfs.h"
 #include "usb_device.h"
 
+/* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
 
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
+
+SD_HandleTypeDef hsd;
+
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
@@ -60,8 +63,6 @@ static uint8_t bCAN2_TxReq = 0;
 static uint32_t iCAN1_Timeout = 0;
 static uint32_t iCAN2_Timeout = 0;
 
-/* USER CODE END PV */
-
 // if defined CAN2 acting as loopback
 //#define CAN1_LOOPBACK
 
@@ -69,7 +70,7 @@ static uint32_t iCAN2_Timeout = 0;
 //#define CAN2_LOOPBACK
 
 // if defined CAN parameters are stored in MCU Flash
- #define USE_FLASH
+// #define USE_FLASH
 
 #ifdef USE_FLASH
   #define FLASH_USER_OFFSET 0x800F800
@@ -85,6 +86,7 @@ static uint32_t iCAN2_Timeout = 0;
   int iCAN2_FilterMaskIdLow  __attribute__((at(FLASH_USER_OFFSET+4*9))) = 0;
   int iReplace_Count          __attribute__((at(FLASH_USER_OFFSET+4*10))) = 0;
 #else
+  #define FLASH_USER_OFFSET 0x800F800
   int iCAN1_Prescaler         = 6;
   int iCAN2_Prescaler         = 6;
   int iCAN1_FilterIdHigh      = 0;
@@ -112,6 +114,7 @@ unsigned int *iReplace_NewDataMaskHigh;
 unsigned int *iReplace_NewDataMaskLow;
 unsigned int *iReplace_NewDataValueHigh;
 unsigned int *iReplace_NewDataValueLow;
+/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -119,8 +122,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
-void Error_Handler(void);
-
+static void MX_SDIO_SD_Init(void);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 void User_GPIO_Init(void);
@@ -150,35 +152,53 @@ void UART_ProcessData(uint8_t rx);
 
 /* USER CODE END PFP */
 
+/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
 
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
+  /* USER CODE BEGIN 1 */
 
-  /* MCU Configuration----------------------------------------------------------*/
+  /* USER CODE END 1 */
+  
+
+  /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_CAN1_Init();
-  MX_CAN2_Init();
   MX_USB_DEVICE_Init();
   MX_USART3_UART_Init();
-
+  MX_CAN1_Init();
+  MX_CAN2_Init();
+  MX_SDIO_SD_Init();
+  MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
   User_GPIO_Init();
   LedG(1);
 
  /* Output a message on Hyperterminal using printf function */
-  printf("\n\r UART Printf Example: retarget the C library printf function to the UART\n\r");
-  printf("** Test finished successfully. ** \n\r");
+  printf("\n\rCAN Brigdge\n\r");
+  printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
 
   /*##-2- Start the Reception process and enable reception interrupt #########*/
   if (HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
@@ -255,79 +275,49 @@ int main(void)
   
 
   /* USER CODE END 2 */
+ 
+ 
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-  /* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-  /* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
 
   }
   /* USER CODE END 3 */
-
 }
 
 /**
-  * @brief  Retargets the C library printf function to the USART.
-  * @param  None
+  * @brief System Clock Configuration
   * @retval None
   */
-PUTCHAR_PROTOTYPE
-{
-  /* Place your implementation of fputc here */
-  /* e.g. write a character to the USART1 and Loop until the end of transmission */
-  HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
-
-  return ch;
-}
-
-
-/** System Clock Configuration
-*/
 void SystemClock_Config(void)
 {
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  RCC_OscInitTypeDef RCC_OscInitStruct;
-  RCC_ClkInitTypeDef RCC_ClkInitStruct;
-#ifndef STM32F405xx
-  RCC_PeriphCLKInitTypeDef PeriphClkInit;
-#endif
-
-  /** Configure the main internal regulator output voltage
+  /** Configure the main internal regulator output voltage 
   */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-  /** Initializes the CPU, AHB and APB busses clocks
+  /** Initializes the CPU, AHB and APB busses clocks 
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-#ifndef STM32F405xx	
-  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
-  RCC_OscInitStruct.Prediv1Source = RCC_PREDIV1_SOURCE_HSE;
-#endif	
-#ifdef STM32F405xx
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 4U;
-  RCC_OscInitStruct.PLL.PLLN = 72U;
+  RCC_OscInitStruct.PLL.PLLM = 4;
+  RCC_OscInitStruct.PLL.PLLN = 72;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 3U;
-#else	
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 25U;
-  RCC_OscInitStruct.PLL.PLLN = 336U;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 7U;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
-  RCC_OscInitStruct.PLL2.PLL2State = RCC_PLL_NONE;
-#endif		
-  HAL_RCC_OscConfig(&RCC_OscInitStruct);
-
-  /** Initializes the CPU, AHB and APB busses clocks
+  RCC_OscInitStruct.PLL.PLLQ = 3;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Initializes the CPU, AHB and APB busses clocks 
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
@@ -335,56 +325,52 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
 
-#ifdef STM32F405xx
-
-#else
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
-  PeriphClkInit.UsbClockSelection = RCC_USBPLLCLK_DIV3;
-	HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit);
-#endif	
-
-
-  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
-
-//  __HAL_RCC_PLLI2S_ENABLE();
-
-  /* SysTick_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
-}
-
-/**
-  * @brief USART3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART3_UART_Init(void)
-{
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
 }
 
-/* CAN1 init function */
-void MX_CAN1_Init(void)
+/**
+  * @brief CAN1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CAN1_Init(void)
 {
+
+  /* USER CODE BEGIN CAN1_Init 0 */
+
+  /* USER CODE END CAN1_Init 0 */
+
+  /* USER CODE BEGIN CAN1_Init 1 */
+#if 0
+  /* USER CODE END CAN1_Init 1 */
+  hcan1.Instance = CAN1;
+  hcan1.Init.Prescaler = 16;
+  hcan1.Init.Mode = CAN_MODE_NORMAL;
+  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_1TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan1.Init.TimeTriggeredMode = DISABLE;
+  hcan1.Init.AutoBusOff = DISABLE;
+  hcan1.Init.AutoWakeUp = DISABLE;
+  hcan1.Init.AutoRetransmission = DISABLE;
+  hcan1.Init.ReceiveFifoLocked = DISABLE;
+  hcan1.Init.TransmitFifoPriority = DISABLE;
+  if (HAL_CAN_Init(&hcan1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CAN1_Init 2 */
+#else
   CAN_FilterConfTypeDef  sFilterConfig;
 
   hcan1.Instance = CAN1;
   hcan1.pTxMsg = &Tx1Message;
   hcan1.pRxMsg = &Rx1Message;
-  
+
   hcan1.Init.Prescaler = iCAN1_Prescaler; //3 -- 1Msps
   #ifdef CAN1_LOOPBACK
     hcan1.Init.Mode = CAN_MODE_LOOPBACK;
@@ -401,7 +387,7 @@ void MX_CAN1_Init(void)
   hcan1.Init.RFLM = DISABLE;
   hcan1.Init.TXFP = DISABLE;
   HAL_CAN_Init(&hcan1);
-  
+
 
   /*##-2- Configure the CAN Filter ###########################################*/
   sFilterConfig.FilterNumber = 0;
@@ -421,17 +407,50 @@ void MX_CAN1_Init(void)
     // Filter configuration Error
     Error_Handler();
   }
+#endif
+  /* USER CODE END CAN1_Init 2 */
+
 }
 
-/* CAN2 init function */
-void MX_CAN2_Init(void)
+/**
+  * @brief CAN2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CAN2_Init(void)
 {
+
+  /* USER CODE BEGIN CAN2_Init 0 */
+
+  /* USER CODE END CAN2_Init 0 */
+
+  /* USER CODE BEGIN CAN2_Init 1 */
+#if 0
+  /* USER CODE END CAN2_Init 1 */
+  hcan2.Instance = CAN2;
+  hcan2.Init.Prescaler = 16;
+  hcan2.Init.Mode = CAN_MODE_NORMAL;
+  hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan2.Init.TimeSeg1 = CAN_BS1_1TQ;
+  hcan2.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan2.Init.TimeTriggeredMode = DISABLE;
+  hcan2.Init.AutoBusOff = DISABLE;
+  hcan2.Init.AutoWakeUp = DISABLE;
+  hcan2.Init.AutoRetransmission = DISABLE;
+  hcan2.Init.ReceiveFifoLocked = DISABLE;
+  hcan2.Init.TransmitFifoPriority = DISABLE;
+  if (HAL_CAN_Init(&hcan2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CAN2_Init 2 */
+#else
   CAN_FilterConfTypeDef  sFilterConfig;
 
   hcan2.Instance = CAN2;
   hcan2.pTxMsg = &Tx2Message;
   hcan2.pRxMsg = &Rx2Message;
-  
+
   hcan2.Init.Prescaler = iCAN2_Prescaler; //3 -- 1Msps
   #ifdef CAN2_LOOPBACK
     hcan2.Init.Mode = CAN_MODE_LOOPBACK;
@@ -466,22 +485,98 @@ void MX_CAN2_Init(void)
     // Filter configuration Error
     Error_Handler();
   }
+#endif
+  /* USER CODE END CAN2_Init 2 */
+
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
-        * Output
-        * EVENT_OUT
-        * EXTI
-*/
-void MX_GPIO_Init(void)
+/**
+  * @brief SDIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SDIO_SD_Init(void)
 {
+
+  /* USER CODE BEGIN SDIO_Init 0 */
+
+  /* USER CODE END SDIO_Init 0 */
+
+  /* USER CODE BEGIN SDIO_Init 1 */
+
+  /* USER CODE END SDIO_Init 1 */
+  hsd.Instance = SDIO;
+  hsd.Init.ClockEdge = SDIO_CLOCK_EDGE_RISING;
+  hsd.Init.ClockBypass = SDIO_CLOCK_BYPASS_DISABLE;
+  hsd.Init.ClockPowerSave = SDIO_CLOCK_POWER_SAVE_DISABLE;
+  hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
+  hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
+  hsd.Init.ClockDiv = 0;
+  if (HAL_SD_Init(&hsd) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_SD_ConfigWideBusOperation(&hsd, SDIO_BUS_WIDE_4B) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SDIO_Init 2 */
+
+  /* USER CODE END SDIO_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
 }
+
+/* USER CODE BEGIN 4 */
 
 #define LEDG_PIN GPIO_PIN_7
 #define LEDG_GPIO GPIOA
@@ -491,8 +586,6 @@ void MX_GPIO_Init(void)
 
 #define LEDR_PIN GPIO_PIN_5
 #define LEDR_GPIO GPIOA
-
-/* USER CODE BEGIN 4 */
 
 void User_GPIO_Init(void)
 {
@@ -537,14 +630,6 @@ void LedR(uint8_t On)
 void LedR_Toggle()
 {
   HAL_GPIO_TogglePin(LEDR_GPIO, LEDR_PIN);
-}
-
-
-
-void Error_Handler(void)
-{
-  LedR(1);
-  while (1) ;
 }
 
 void CAN_CancelTransmit(CAN_HandleTypeDef* hcan)
@@ -760,13 +845,13 @@ void UART_ProcessData(uint8_t rx)
 
       // Fill EraseInit structure
 #ifdef STM32F405xx
-			EraseInitStruct.TypeErase   = FLASH_TYPEERASE_SECTORS;
-			EraseInitStruct.Sector      = iMemRWAddr;
-			EraseInitStruct.NbSectors   = 1;
+		EraseInitStruct.TypeErase   = FLASH_TYPEERASE_SECTORS;
+		EraseInitStruct.Sector      = iMemRWAddr;
+		EraseInitStruct.NbSectors   = 1;
 #else			
-      EraseInitStruct.TypeErase   = FLASH_TYPEERASE_PAGES;
-      EraseInitStruct.PageAddress = iMemRWAddr;
-      EraseInitStruct.NbPages     = 1; // we arasing only one page (teh last one)
+		EraseInitStruct.TypeErase   = FLASH_TYPEERASE_PAGES;
+		EraseInitStruct.PageAddress = iMemRWAddr;
+		EraseInitStruct.NbPages     = 1; // we arasing only one page (teh last one)
 #endif
       
       // Erase the user Flash area
@@ -906,9 +991,9 @@ void ProcessModification(CanTxMsgTypeDef* pTxMsg)
   
   
   if (pTxMsg->IDE == CAN_ID_STD)
-    iID = &pTxMsg->StdId;
+    iID = (unsigned int *)&pTxMsg->StdId;
   else
-    iID = &pTxMsg->ExtId;
+    iID = (unsigned int *)&pTxMsg->ExtId;
   
   iDataLow = (unsigned int *)(&pTxMsg->Data);
   iDataHigh = (unsigned int *)(&pTxMsg->Data[4]);
@@ -997,10 +1082,12 @@ void ProcessModification(CanTxMsgTypeDef* pTxMsg)
 
 void RunTests()
 {
+#if defined(TEST_CAN1_INJECTION) || defined(TEST_CAN2_INJECTION)
   uint32_t tickstart = 0;
   CanTxMsgTypeDef *pTxMsg;
   CanRxMsgTypeDef *pRxMsg;
   CAN_HandleTypeDef *hcan;
+#endif
   
 	#ifdef TEST_BLINKY
 	
@@ -1168,32 +1255,34 @@ void RunTests()
 
 /* USER CODE END 4 */
 
-#ifdef USE_FULL_ASSERT
-
 /**
-   * @brief Reports the name of the source file and the source line number
-   * where the assert_param error has occurred.
-   * @param file: pointer to the source file name
-   * @param line: assert_param error line source number
-   * @retval None
-   */
-void assert_failed(uint8_t* file, uint32_t line)
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
 {
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+	  LedR(1);
+	  while (1) ;
+  /* USER CODE END Error_Handler_Debug */
+}
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{ 
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
-
 }
-
-#endif
-
-/**
-  * @}
-  */ 
-
-/**
-  * @}
-*/ 
+#endif /* USE_FULL_ASSERT */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

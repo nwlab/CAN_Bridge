@@ -71,7 +71,7 @@ $(wildcard Src/*.c)
 
 # ASM sources
 ASM_SOURCES =  \
-startup_stm32f405xx.s
+startup/startup_stm32f405xx.s
 
 
 #######################################
