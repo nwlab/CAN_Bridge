@@ -23,6 +23,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include "rx_queue.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,8 +64,9 @@
 /* USER CODE BEGIN PRIVATE_DEFINES */
 /* Define size for the receive and transmit buffer over CDC */
 /* It's up to user to redefine and/or remove those define */
-#define APP_RX_DATA_SIZE  64
-#define APP_TX_DATA_SIZE  64
+#define APP_RX_DATA_SIZE  2048
+#define APP_TX_DATA_SIZE  2048
+#define USB_BUSY_BREAK_THRESHOLD 0x07FFFF
 /* USER CODE END PRIVATE_DEFINES */
 
 /**
@@ -130,6 +132,13 @@ static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
 void LedG_Toggle(void);
 void RxQueuePut(uint8_t data);
+
+USBD_CDC_LineCodingTypeDef LineCoding = {
+    115200 * 8, /* baud rate*/
+    0x00,       /* stop bits-1*/
+    0x00,       /* parity - none*/
+    0x08        /* nb. of bits 8*/
+};
 /* USER CODE END PRIVATE_FUNCTIONS_DECLARATION */
 
 /**
@@ -220,15 +229,24 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   /*                                        4 - Space                            */
   /* 6      | bDataBits  |   1   | Number Data bits (5, 6, 7, 8 or 16).          */
   /*******************************************************************************/
-  case CDC_SET_LINE_CODING:   
-	
+    case CDC_SET_LINE_CODING:
+      LineCoding.bitrate    = (uint32_t)(pbuf[0] | (pbuf[1] << 8) | (pbuf[2] << 16) | (pbuf[3] << 24));
+      LineCoding.format     = pbuf[4];
+      LineCoding.paritytype = pbuf[5];
+      LineCoding.datatype   = pbuf[6];
     break;
 
-  case CDC_GET_LINE_CODING:     
-
+    case CDC_GET_LINE_CODING:
+      pbuf[0] = (uint8_t)(LineCoding.bitrate);
+      pbuf[1] = (uint8_t)(LineCoding.bitrate >> 8);
+      pbuf[2] = (uint8_t)(LineCoding.bitrate >> 16);
+      pbuf[3] = (uint8_t)(LineCoding.bitrate >> 24);
+      pbuf[4] = LineCoding.format;
+      pbuf[5] = LineCoding.paritytype;
+      pbuf[6] = LineCoding.datatype;
     break;
 
-  case CDC_SET_CONTROL_LINE_STATE:
+    case CDC_SET_CONTROL_LINE_STATE:
 
     break;
 
@@ -261,15 +279,16 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-    int i;
+  int i;
+  extern uint32_t toggle_time_g;
   //CDC_Transmit_FS(Buf, *Len); // loopback code
   for (i = 0; i < *Len; i++)
-    RxQueuePut(Buf[i]);
+    rx_queue_put(Buf[i]);
   
   USBD_CDC_SetRxBuffer(hUsbDevice_0, &Buf[0]);
   USBD_CDC_ReceivePacket(hUsbDevice_0);
   
-  LedG_Toggle();
+  toggle_time_g = 2;
   
   return (USBD_OK);
   /* USER CODE END 6 */
@@ -290,12 +309,35 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 {
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 7 */
-  USBD_CDC_SetTxBuffer(hUsbDevice_0, Buf, Len);     
-  while(result != USBD_OK);
-  do {
-    result = USBD_CDC_TransmitPacket(hUsbDevice_0);
+
+  USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+  volatile uint32_t busy_times = 0;
+  while (1)
+  {
+      if (hcdc->TxState != 0) // USBD_BUSY
+      {
+          if (++busy_times > USB_BUSY_BREAK_THRESHOLD)
+          {
+            return USBD_BUSY;
+          }
+          else
+            continue;
+      }
+      else
+      {
+          break;
+      }
   }
-  while(result != USBD_OK);
+
+
+  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
+  result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
+
+  while (1)
+  {
+      if (hcdc->TxState == 0)
+        break;
+  }
   /* USER CODE END 7 */
   return result;
 }

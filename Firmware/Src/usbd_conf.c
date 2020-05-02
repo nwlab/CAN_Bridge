@@ -26,7 +26,7 @@
 #include "usbd_core.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,7 +39,7 @@
 /* USER CODE END PV */
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
-void Error_Handler(void);
+//void Error_Handler(void);
 
 /* External functions --------------------------------------------------------*/
 void SystemClock_Config(void);
@@ -346,7 +346,7 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   hpcd_USB_OTG_FS.Init.Sof_enable = DISABLE;
   hpcd_USB_OTG_FS.Init.low_power_enable = DISABLE;
   hpcd_USB_OTG_FS.Init.lpm_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
+  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = DISABLE;
   hpcd_USB_OTG_FS.Init.use_dedicated_ep1 = DISABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_FS) != HAL_OK)
   {

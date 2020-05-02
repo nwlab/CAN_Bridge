@@ -42,19 +42,51 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+#define FLASH_CFG_START_ADDRESS ((uint32_t)0x0800C000u)   /*Sector 3*/
+#define FLASH_CFG_START_SECTOR  (FLASH_SECTOR_3)
+#define FLASH_CFG_SIZE          512 /*0x4000 */
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
+#if ( DEBUG == DEBUG_ENABLE )
+    /* printf definetion */
+    #define DEBUG_MSG( fmt, ...) \
+    do \
+    { \
+      printf( "[%08ld]%s:%d:%s(): " fmt "\r\n", HAL_GetTick(), __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+    }while( 0 );
+#else
+    #define DEBUG_MSG( fmt, ... )
+#endif
 
+#if ( DEBUG == DEBUG_ENABLE )
+    /* printf definetion */
+    #define INFO_MSG( fmt, ...) \
+    do \
+    { \
+      printf( fmt "\r\n", ##__VA_ARGS__); \
+    }while( 0 );
+#else
+    #define INFO_MSG( fmt, ... )
+#endif
+
+#define LOADER_MODE_TEST         0x00
+#define LOADER_MODE_APP          0x12
+#define LOADER_MODE_FLASH        0x43
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/
-void Error_Handler(void);
+#define Error_Handler() __Error_Handler(__FUNCTION__, __LINE__)
+void __Error_Handler(const char *func, int line);
 
 /* USER CODE BEGIN EFP */
-
+void LedG(uint8_t On);
+void LedG_Toggle(void);
+void LedB(uint8_t On);
+void LedB_Toggle(void);
+void LedR(uint8_t On);
+void LedR_Toggle(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

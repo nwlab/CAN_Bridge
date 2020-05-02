@@ -61,9 +61,13 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
-CCMRAM (xrw)      : ORIGIN = 0x10000000, LENGTH = 64K
-FLASH (rx)      : ORIGIN = 0x8010000, LENGTH = 960K
+RAM (xrw)        : ORIGIN = 0x20000000, LENGTH = 128K
+CCMRAM (xrw)     : ORIGIN = 0x10000000, LENGTH = 64K
+FLASH_BOOT (rx)  : ORIGIN = 0x08000000, LENGTH = 48k
+FLASH_DATA (rwx) : ORIGIN = ORIGIN(FLASH_BOOT) + LENGTH(FLASH_BOOT), 
+                   LENGTH = 16k
+FLASH (rx)       : ORIGIN = ORIGIN(FLASH_DATA) + LENGTH(FLASH_DATA), 
+                   LENGTH = 1024k - LENGTH(FLASH_BOOT) - LENGTH(FLASH_DATA)
 }
 
 /* Define output sections */
@@ -193,7 +197,13 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
-  
+  /* Boot configuration data */
+  .user_data (NOLOAD) :
+  {
+  . = ALIGN(4);
+     *(.user_data)
+  . = ALIGN(4);
+  } > FLASH_DATA
 
   /* Remove information from the standard libraries */
   /DISCARD/ :

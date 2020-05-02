@@ -36,16 +36,6 @@ BUILD_DIR = build
 ######################################
 # C sources
 C_SOURCES =  \
-Src/main.c \
-Src/usb_device.c \
-Src/usbd_conf.c \
-Src/usbd_desc.c \
-Src/usbd_cdc_if.c \
-Src/stm32f4xx_it.c \
-Src/stm32f4xx_hal_msp.c \
-Src/system_stm32f4xx.c \
-Src/user_diskio.c \
-Src/fatfs.c \
 Drivers/STM32F4xx_HAL_Driver/Src/Legacy/stm32f4xx_hal_can.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd_ex.c \
@@ -75,7 +65,8 @@ Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c \
 Middlewares/Third_Party/FatFs/src/diskio.c \
 Middlewares/Third_Party/FatFs/src/ff.c \
 Middlewares/Third_Party/FatFs/src/ff_gen_drv.c \
-Middlewares/Third_Party/FatFs/src/option/syscall.c
+Middlewares/Third_Party/FatFs/src/option/syscall.c \
+$(wildcard Src/*.c)
 
 # ASM sources
 ASM_SOURCES =  \

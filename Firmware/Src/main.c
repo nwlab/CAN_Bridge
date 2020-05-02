@@ -22,10 +22,13 @@
 #include "main.h"
 #include "fatfs.h"
 #include "usb_device.h"
+#include "nvs.h"
+#include "rx_queue.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "cli.h"
+#include "uart.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,6 +55,8 @@ UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+volatile uint8_t gSystemInitialized = 0;
+
 static CanTxMsgTypeDef        Tx1Message;
 static CanRxMsgTypeDef        Rx1Message;
 static CanTxMsgTypeDef        Tx2Message;
@@ -69,51 +74,38 @@ static uint32_t iCAN2_Timeout = 0;
 // if defined CAN2 acting as loopback
 //#define CAN2_LOOPBACK
 
-// if defined CAN parameters are stored in MCU Flash
-// #define USE_FLASH
+int iCAN1_Prescaler         = 6;
+int iCAN2_Prescaler         = 6;
+int iCAN1_FilterIdHigh      = 0;
+int iCAN1_FilterIdLow       = 0;
+int iCAN1_FilterMaskIdHigh  = 0;
+int iCAN1_FilterMaskIdLow   = 0;
+int iCAN2_FilterIdHigh      = 0;
+int iCAN2_FilterIdLow       = 0;
+int iCAN2_FilterMaskIdHigh  = 0;
+int iCAN2_FilterMaskIdLow   = 0;
+int iReplace_Count = 0;
 
-#ifdef USE_FLASH
-  #define FLASH_USER_OFFSET 0x800F800
-  int iCAN1_Prescaler        __attribute__((at(FLASH_USER_OFFSET+4*0))) = 6;
-  int iCAN2_Prescaler        __attribute__((at(FLASH_USER_OFFSET+4*1))) = 6;
-  int iCAN1_FilterIdHigh     __attribute__((at(FLASH_USER_OFFSET+4*2))) = 0;
-  int iCAN1_FilterIdLow      __attribute__((at(FLASH_USER_OFFSET+4*3))) = 0;
-  int iCAN1_FilterMaskIdHigh __attribute__((at(FLASH_USER_OFFSET+4*4))) = 0;
-  int iCAN1_FilterMaskIdLow  __attribute__((at(FLASH_USER_OFFSET+4*5))) = 0;
-  int iCAN2_FilterIdHigh     __attribute__((at(FLASH_USER_OFFSET+4*6))) = 0;
-  int iCAN2_FilterIdLow      __attribute__((at(FLASH_USER_OFFSET+4*7))) = 0;
-  int iCAN2_FilterMaskIdHigh __attribute__((at(FLASH_USER_OFFSET+4*8))) = 0;
-  int iCAN2_FilterMaskIdLow  __attribute__((at(FLASH_USER_OFFSET+4*9))) = 0;
-  int iReplace_Count          __attribute__((at(FLASH_USER_OFFSET+4*10))) = 0;
-#else
-  #define FLASH_USER_OFFSET 0x800F800
-  int iCAN1_Prescaler         = 6;
-  int iCAN2_Prescaler         = 6;
-  int iCAN1_FilterIdHigh      = 0;
-  int iCAN1_FilterIdLow       = 0;
-  int iCAN1_FilterMaskIdHigh  = 0;
-  int iCAN1_FilterMaskIdLow   = 0;
-  int iCAN2_FilterIdHigh      = 0;
-  int iCAN2_FilterIdLow       = 0;
-  int iCAN2_FilterMaskIdHigh  = 0;
-  int iCAN2_FilterMaskIdLow   = 0;
-  int iReplace_Count = 0;
-#endif
+typedef struct replace
+{
+  unsigned int IDMask;
+  unsigned int IDFilter;
+  unsigned int NewIDMask;
+  unsigned int NewIDValue;
+  unsigned int DataMaskHigh;
+  unsigned int DataMaskLow;
+  unsigned int DataFilterHigh;
+  unsigned int DataFilterLow;
+  unsigned int NewDataMaskHigh;
+  unsigned int NewDataMaskLow;
+  unsigned int NewDataValueHigh;
+  unsigned int NewDataValueLow;
+}replace_t;
+#define REPLACEMENT_SIZE (12)
+#define REPLACEMENT_MAX 32
 
-#define FLASH_REPLACEMENT_OFFSET (FLASH_USER_OFFSET + 4*11)
-#define FLASH_REPLACEMENT_SIZE (12)
-unsigned int *iReplace_IDMask;
-unsigned int *iReplace_IDFilter;
-unsigned int *iReplace_NewIDMask;
-unsigned int *iReplace_NewIDValue;
-unsigned int *iReplace_DataMaskHigh;
-unsigned int *iReplace_DataMaskLow;
-unsigned int *iReplace_DataFilterHigh;
-unsigned int *iReplace_DataFilterLow;
-unsigned int *iReplace_NewDataMaskHigh;
-unsigned int *iReplace_NewDataMaskLow;
-unsigned int *iReplace_NewDataValueHigh;
-unsigned int *iReplace_NewDataValueLow;
+replace_t iReplace[REPLACEMENT_MAX] = {0};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -142,14 +134,9 @@ uint8_t RxQueueNotEmpty(void);
 
 void UART_ProcessData(uint8_t rx);
 
-#ifdef __GNUC__
-/* With GCC, small printf (option LD Linker->Libraries->Small printf
-   set to 'Yes') calls __io_putchar() */
-#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-#else
-#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
-#endif /* __GNUC__ */
-
+void Read_Param();
+void CLI_Loop();
+void CAN_Loop();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -191,14 +178,22 @@ int main(void)
   MX_CAN1_Init();
   MX_CAN2_Init();
   MX_SDIO_SD_Init();
-  MX_FATFS_Init();
+//  MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
   User_GPIO_Init();
   LedG(1);
 
+  nvs_init();
+  CLI_Init();
+
+  gSystemInitialized = 1;
+
  /* Output a message on Hyperterminal using printf function */
-  printf("\n\rCAN Brigdge\n\r");
+  printf("\n\rCAN Bridge\n\r");
   printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
+
+  /* Read parameters from nvram */
+  Read_Param();
 
   /*##-2- Start the Reception process and enable reception interrupt #########*/
   if (HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
@@ -217,8 +212,30 @@ int main(void)
   RunTests(); // this is function to run transmission tests 
  
   // this is loopback cycle
+  CLI_Loop();
+
+  /* USER CODE END 2 */
+
+
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+    CAN_Loop();
+    if (rx_queue_not_empty()) UART_ProcessData(rx_queue_get());
+  }
+  /* USER CODE END 3 */
+}
+
+/*
+ *
+ */
+void CAN_Loop()
+{
     if (bCAN2_TxReq)
     {
       LedR(1);
@@ -269,25 +286,6 @@ int main(void)
         iCAN1_Timeout = 0;
       }
     }
-    
-    if (RxQueueNotEmpty()) UART_ProcessData(RxQueueGet());
-  }
-  
-
-  /* USER CODE END 2 */
- 
- 
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-  }
-  /* USER CODE END 3 */
 }
 
 /**
@@ -600,6 +598,53 @@ void User_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LEDG_GPIO, &GPIO_InitStruct);
+}
+
+uint32_t toggle_time_r = 0;
+uint32_t toggle_time_g = 0;
+uint32_t toggle_time_b = 0;
+
+void main_tick_1ms()
+{
+}
+void main_tick_5ms()
+{
+}
+void main_tick_10ms()
+{
+}
+void main_tick_50ms()
+{
+  if (toggle_time_r > 0)
+  {
+    HAL_GPIO_TogglePin(LEDR_GPIO, LEDR_PIN);
+    toggle_time_r--;
+    if (toggle_time_r == 0)
+      HAL_GPIO_WritePin(LEDR_GPIO, LEDR_PIN, GPIO_PIN_RESET);
+  }
+  if (toggle_time_g > 0)
+  {
+    HAL_GPIO_TogglePin(LEDG_GPIO, LEDG_PIN);
+    toggle_time_g--;
+    if (toggle_time_g == 0)
+      HAL_GPIO_WritePin(LEDG_GPIO, LEDG_PIN, GPIO_PIN_RESET);
+  }
+  if (toggle_time_b > 0)
+  {
+    HAL_GPIO_TogglePin(LEDB_GPIO, LEDB_PIN);
+    toggle_time_b--;
+    if (toggle_time_b == 0)
+      HAL_GPIO_WritePin(LEDB_GPIO, LEDB_PIN, GPIO_PIN_RESET);
+  }
+}
+void main_tick_100ms()
+{
+}
+void main_tick_500ms()
+{
+}
+void main_tick_1s()
+{
 }
 
 void LedG(uint8_t On)
@@ -935,47 +980,8 @@ void UART_ProcessData(uint8_t rx)
     }
     else
       bUartRxState = UART_STATE_WRITE_0;
-    
   }
 }
-
-//----------------------------------------------------------------------------------------
-// Simple Queue implementation for serial port
-
-#define RX_QUEUE_LENGTH 64
-static uint8_t bRxQueue[RX_QUEUE_LENGTH];
-static int iRxQueueCount = 0;
-static int iRxQueueIn = 0;
-static int iRxQueueOut = 0;
-
-void RxQueuePut(uint8_t data)
-{
-  if (iRxQueueCount < RX_QUEUE_LENGTH)
-  {
-    bRxQueue[iRxQueueIn] = data;
-    iRxQueueIn = iRxQueueIn + 1;
-    if (iRxQueueIn >= RX_QUEUE_LENGTH) iRxQueueIn = 0;
-    iRxQueueCount++;
-  }
-}
-
-uint8_t RxQueueGet()
-{
-  uint8_t data = 0;
-  
-  if (iRxQueueCount > 0)
-  {
-    data = bRxQueue[iRxQueueOut];
-    iRxQueueOut = iRxQueueOut + 1;
-    if (iRxQueueOut >= RX_QUEUE_LENGTH) iRxQueueOut = 0;
-    iRxQueueCount--;
-  }
-  
-  return data;
-}
-
-uint8_t RxQueueNotEmpty() { return iRxQueueCount > 0; }
-
 
 //----------------------------------------------------------------------------------------
 // CAN packets data modification procedure
@@ -985,11 +991,9 @@ void ProcessModification(CanTxMsgTypeDef* pTxMsg)
 {
   unsigned int *iID;
   int i;
-  unsigned int *iBuffer;
   unsigned int *iDataLow;
   unsigned int *iDataHigh;
-  
-  
+
   if (pTxMsg->IDE == CAN_ID_STD)
     iID = (unsigned int *)&pTxMsg->StdId;
   else
@@ -997,57 +1001,79 @@ void ProcessModification(CanTxMsgTypeDef* pTxMsg)
   
   iDataLow = (unsigned int *)(&pTxMsg->Data);
   iDataHigh = (unsigned int *)(&pTxMsg->Data[4]);
-
-  iBuffer = (unsigned int *)(FLASH_REPLACEMENT_OFFSET - FLASH_REPLACEMENT_SIZE*4); //-FLASH_REPLACEMENT_SIZE needed because we shift pointer at the beginning of the for loop 
-  iReplace_IDMask = iBuffer; iBuffer++;
-  iReplace_IDFilter = iBuffer; iBuffer++;
-  iReplace_NewIDMask = iBuffer; iBuffer++;
-  iReplace_NewIDValue = iBuffer; iBuffer++;
-  iReplace_DataMaskHigh = iBuffer; iBuffer++;
-  iReplace_DataMaskLow = iBuffer; iBuffer++;
-  iReplace_DataFilterHigh = iBuffer; iBuffer++;
-  iReplace_DataFilterLow = iBuffer; iBuffer++;
-  iReplace_NewDataMaskHigh = iBuffer; iBuffer++;
-  iReplace_NewDataMaskLow = iBuffer; iBuffer++;
-  iReplace_NewDataValueHigh = iBuffer; iBuffer++;
-  iReplace_NewDataValueLow = iBuffer; iBuffer++;
   
   for (i = 0; i < iReplace_Count; i++)
   {
-    // increment pointers to move to next replacement record
-    iReplace_IDMask += FLASH_REPLACEMENT_SIZE;
-    iReplace_IDFilter += FLASH_REPLACEMENT_SIZE;
-    iReplace_NewIDMask += FLASH_REPLACEMENT_SIZE;
-    iReplace_NewIDValue += FLASH_REPLACEMENT_SIZE;
-    iReplace_DataMaskHigh += FLASH_REPLACEMENT_SIZE;
-    iReplace_DataMaskLow += FLASH_REPLACEMENT_SIZE;
-    iReplace_DataFilterHigh += FLASH_REPLACEMENT_SIZE;
-    iReplace_DataFilterLow += FLASH_REPLACEMENT_SIZE;
-    iReplace_NewDataMaskHigh += FLASH_REPLACEMENT_SIZE;
-    iReplace_NewDataMaskLow += FLASH_REPLACEMENT_SIZE;
-    iReplace_NewDataValueHigh += FLASH_REPLACEMENT_SIZE;
-    iReplace_NewDataValueLow += FLASH_REPLACEMENT_SIZE;
-    
     // if bit in "ID Mask" =1 AND bit in recieved ID = bit in "ID Filter", then packed ID is accepted for modification
     // AND
     // if bit in "Data Mask" =1 AND bit in recieved ID = bit in "Data Filter", then packed data is accepted for modification
     
-    if ((*iID & *iReplace_IDMask) != (*iReplace_IDFilter & *iReplace_IDMask)) continue;
-    if ((*iDataLow & *iReplace_DataMaskLow) != (*iReplace_DataFilterLow & *iReplace_DataMaskLow)) continue;
-    if ((*iDataHigh & *iReplace_DataMaskHigh) != (*iReplace_DataFilterHigh & *iReplace_DataMaskHigh)) continue;
+    if ((*iID & iReplace[i].IDMask) != (iReplace[i].IDFilter & iReplace[i].IDMask)) continue;
+    if ((*iDataLow & iReplace[i].DataMaskLow) != (iReplace[i].DataFilterLow & iReplace[i].DataMaskLow)) continue;
+    if ((*iDataHigh & iReplace[i].DataMaskHigh) != (iReplace[i].DataFilterHigh & iReplace[i].DataMaskHigh)) continue;
      
     // here is data packed accepted by filter
     
     // if bit =1 in "New ID Mask" then the value of this bit is being replaced by bit from "New ID Value"
-    *iID = (*iID & ~(*iReplace_NewIDMask)) | *iReplace_NewIDValue;
+    *iID = (*iID & ~(iReplace[i].NewIDMask)) | iReplace[i].NewIDValue;
     
     // if bit =1 in "New Data Mask" then the value of this bit is being replaced by bit from "New Data Value"
-    *iDataLow = (*iDataLow & ~(*iReplace_NewDataMaskLow)) | (*iReplace_NewDataValueLow & *iReplace_NewDataMaskLow);
-    *iDataHigh = (*iDataHigh & ~(*iReplace_NewDataMaskHigh)) | (*iReplace_NewDataValueHigh & *iReplace_NewDataMaskHigh);
+    *iDataLow = (*iDataLow & ~(iReplace[i].NewDataMaskLow)) | (iReplace[i].NewDataValueLow & iReplace[i].NewDataMaskLow);
+    *iDataHigh = (*iDataHigh & ~(iReplace[i].NewDataMaskHigh)) | (iReplace[i].NewDataValueHigh & iReplace[i].NewDataMaskHigh);
   }
 
 }
 
+//----------------------------------------------------------------------------------------
+// Read parameters from NVS
+//----------------------------------------------------------------------------------------
+void Read_Param()
+{
+  uint16_t size = 0;
+
+  if (nvs_get("c1_pre", (uint8_t*)&iCAN1_Prescaler, &size, sizeof(iCAN1_Prescaler)) == KEY_NOT_FOUND ||
+      nvs_get("c2_pre", (uint8_t*)&iCAN2_Prescaler, &size, sizeof(iCAN2_Prescaler)) == KEY_NOT_FOUND ||
+      nvs_get("c1_fih", (uint8_t*)&iCAN1_FilterIdHigh, &size, sizeof(iCAN1_FilterIdHigh)) == KEY_NOT_FOUND ||
+      nvs_get("c1_fil", (uint8_t*)&iCAN1_FilterIdLow, &size, sizeof(iCAN1_FilterIdLow)) == KEY_NOT_FOUND ||
+      nvs_get("c1_fmih", (uint8_t*)&iCAN1_FilterMaskIdHigh, &size, sizeof(iCAN1_FilterMaskIdHigh)) == KEY_NOT_FOUND ||
+      nvs_get("c1_fmil", (uint8_t*)&iCAN1_FilterMaskIdLow, &size, sizeof(iCAN1_FilterMaskIdLow)) == KEY_NOT_FOUND ||
+      nvs_get("c2_fih", (uint8_t*)&iCAN2_FilterIdHigh, &size, sizeof(iCAN2_FilterIdHigh)) == KEY_NOT_FOUND ||
+      nvs_get("c2_fil", (uint8_t*)&iCAN2_FilterIdLow, &size, sizeof(iCAN2_FilterIdLow)) == KEY_NOT_FOUND ||
+      nvs_get("c2_fmih", (uint8_t*)&iCAN2_FilterMaskIdHigh, &size, sizeof(iCAN2_FilterMaskIdHigh)) == KEY_NOT_FOUND ||
+      nvs_get("c2_fmil", (uint8_t*)&iCAN2_FilterMaskIdLow, &size, sizeof(iCAN2_FilterMaskIdLow)) == KEY_NOT_FOUND ||
+      nvs_get("repl_cnt", (uint8_t*)&iReplace_Count, &size, sizeof(iReplace_Count)) == KEY_NOT_FOUND ||
+      nvs_get("replace", (uint8_t*)&iReplace, &size, sizeof(iReplace)) == KEY_NOT_FOUND)
+  {
+    DEBUG_MSG("No parameters in NVS, Set to default");
+    iCAN1_Prescaler         = 6;
+    iCAN2_Prescaler         = 6;
+    iCAN1_FilterIdHigh      = 0;
+    iCAN1_FilterIdLow       = 0;
+    iCAN1_FilterMaskIdHigh  = 0;
+    iCAN1_FilterMaskIdLow   = 0;
+    iCAN2_FilterIdHigh      = 0;
+    iCAN2_FilterIdLow       = 0;
+    iCAN2_FilterMaskIdHigh  = 0;
+    iCAN2_FilterMaskIdLow   = 0;
+    iReplace_Count = 0;
+    nvs_put("c1_pre", (uint8_t *)&iCAN1_Prescaler, sizeof(iCAN1_Prescaler), sizeof(iCAN1_Prescaler));
+    nvs_put("c2_pre", (uint8_t *)&iCAN2_Prescaler, sizeof(iCAN2_Prescaler), sizeof(iCAN2_Prescaler));
+    nvs_put("c1_fih", (uint8_t *)&iCAN1_FilterIdHigh, sizeof(iCAN1_FilterIdHigh), sizeof(iCAN1_FilterIdHigh));
+    nvs_put("c1_fil", (uint8_t *)&iCAN1_FilterIdLow, sizeof(iCAN1_FilterIdLow), sizeof(iCAN1_FilterIdLow));
+    nvs_put("c1_fmih", (uint8_t *)&iCAN1_FilterMaskIdHigh, sizeof(iCAN1_FilterMaskIdHigh), sizeof(iCAN1_FilterMaskIdHigh));
+    nvs_put("c1_fmil", (uint8_t *)&iCAN1_FilterMaskIdLow, sizeof(iCAN1_FilterMaskIdLow), sizeof(iCAN1_FilterMaskIdLow));
+    nvs_put("c2_fih", (uint8_t *)&iCAN2_FilterIdHigh, sizeof(iCAN2_FilterIdHigh), sizeof(iCAN2_FilterIdHigh));
+    nvs_put("c2_fil", (uint8_t *)&iCAN2_FilterIdLow, sizeof(iCAN2_FilterIdLow), sizeof(iCAN2_FilterIdLow));
+    nvs_put("c2_fmih", (uint8_t *)&iCAN2_FilterMaskIdHigh, sizeof(iCAN2_FilterMaskIdHigh), sizeof(iCAN2_FilterMaskIdHigh));
+    nvs_put("c2_fmil", (uint8_t *)&iCAN2_FilterMaskIdLow, sizeof(iCAN2_FilterMaskIdLow), sizeof(iCAN2_FilterMaskIdLow));
+    nvs_put("repl_cnt", (uint8_t *)&iReplace_Count, sizeof(iReplace_Count), sizeof(iReplace_Count));
+    nvs_put("replace", (uint8_t *)&iReplace, sizeof(iReplace), sizeof(iReplace));
+    if (nvs_commit() != NVS_OK)
+    {
+      DEBUG_MSG("Flash commit failed");
+    }
+  }
+}
 
 //----------------------------------------------------------------------------------------
 // Functional tests for transmission
@@ -1259,12 +1285,21 @@ void RunTests()
   * @brief  This function is executed in case of error occurrence.
   * @retval None
   */
-void Error_Handler(void)
+void __Error_Handler(const char *func, int line)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  if (gSystemInitialized == 1)
+  {
+    char msg[256];
+    snprintf(msg, sizeof(msg), "\n\rError handle at : %s:%d\n\r", func, line);
 	  LedR(1);
-	  while (1) ;
+	  infinite_message(msg);
+  }
+  else
+  {
+    printf("\n\rError handle at : %s:%d\n\r", func, line);
+  }
   /* USER CODE END Error_Handler_Debug */
 }
 

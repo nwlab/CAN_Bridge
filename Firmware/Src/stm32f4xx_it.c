@@ -47,7 +47,13 @@
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-
+void main_tick_1ms();
+void main_tick_5ms();
+void main_tick_10ms();
+void main_tick_50ms();
+void main_tick_100ms();
+void main_tick_500ms();
+void main_tick_1s();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -59,7 +65,8 @@
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
-
+volatile uint32_t msCount = 0;
+extern volatile uint8_t gSystemInitialized;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -187,7 +194,30 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  if (gSystemInitialized == 0) return;
 
+  main_tick_1ms();
+  if (msCount % 5 == 0) {
+      main_tick_5ms();
+      if (msCount % 10 == 0) {
+          main_tick_10ms();
+          if (msCount % 50 == 0) {
+              main_tick_50ms();
+              if (msCount % 100 == 0) {
+                  main_tick_100ms();
+                  if (msCount % 500 == 0) {
+                      main_tick_500ms();
+                      if (msCount % 1000 == 0) {
+                          main_tick_1s();
+                          msCount = 0;
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+  msCount++;
   /* USER CODE END SysTick_IRQn 1 */
 }
 
