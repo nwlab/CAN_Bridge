@@ -51,17 +51,17 @@ void CLI_Init()
   cli_write_callback(cli, stdout_cli_write);
 
   cli_register_command(cli, NULL, "info", cmd_info, PRIVILEGE_UNPRIVILEGED,
-      MODE_EXEC, NULL);
+  MODE_EXEC, NULL);
   c_show = cli_register_command(cli, NULL, "show", cmd_boot,
-      PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
+  PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
   cli_register_command(cli, c_show, "boot", cmd_boot, PRIVILEGE_UNPRIVILEGED,
-      MODE_EXEC, NULL);
+  MODE_EXEC, NULL);
   cli_register_command(cli, c_show, "can", cmd_can, PRIVILEGE_UNPRIVILEGED,
-      MODE_EXEC, NULL);
+  MODE_EXEC, NULL);
   c_set = cli_register_command(cli, NULL, "set", cmd_boot,
-      PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
+  PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
   cli_register_command(cli, c_set, "can", cmd_can, PRIVILEGE_UNPRIVILEGED,
-      MODE_EXEC, NULL);
+  MODE_EXEC, NULL);
 
 }
 
@@ -91,15 +91,8 @@ int cmd_boot(struct cli_def *cli, const char *command, char *argv[], int argc)
   }
   uint8_t run_mode = 0;
   uint16_t size = 0;
-  if (nvs_get("boot", &run_mode, &size, 1) == KEY_NOT_FOUND)
-  {
-    cli_print(cli, "boot flag not found");
-  }
-  else
-  {
-    cli_print(cli, "boot start : %s",
-        run_mode == LOADER_MODE_APP ? "application" : "bootloader");
-  }
+  nvs_get("boot", &run_mode, &size, 1);
+  cli_print(cli, "boot start : %s", run_mode == LOADER_MODE_APP ? "application" : "bootloader");
   return CLI_OK;
 }
 
@@ -107,16 +100,15 @@ int cmd_can(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
   int iCAN1_Prescaler;
   int iCAN2_Prescaler;
+  int iReplace_Count;
   uint16_t size = 0;
-  nvs_get("c1_pre", (uint8_t*) &iCAN1_Prescaler, &size,
-      sizeof(iCAN1_Prescaler));
-  nvs_get("c2_pre", (uint8_t*) &iCAN2_Prescaler, &size,
-      sizeof(iCAN2_Prescaler));
+  nvs_get("c1_pre", (uint8_t*) &iCAN1_Prescaler, &size, sizeof(iCAN1_Prescaler));
+  nvs_get("c2_pre", (uint8_t*) &iCAN2_Prescaler, &size, sizeof(iCAN2_Prescaler));
+  nvs_get("repl_cnt", (uint8_t*) &iReplace_Count, &size, sizeof(iReplace_Count))
 
-  cli_print(cli, "CAN1 Baudrate : %d",
-      (int) (1000 * 3.0 / (float) (iCAN1_Prescaler) + 0.5));
-  cli_print(cli, "CAN2 Baudrate : %d",
-      (int) (1000 * 3.0 / (float) (iCAN2_Prescaler) + 0.5));
+  cli_print(cli, "CAN1 Baudrate : %d", (int) (1000 * 3.0 / (float) (iCAN1_Prescaler) + 0.5));
+  cli_print(cli, "CAN2 Baudrate : %d", (int) (1000 * 3.0 / (float) (iCAN2_Prescaler) + 0.5));
+  cli_print(cli, "Replace count : %d", iReplace_Count);
 
   return CLI_OK;
 }

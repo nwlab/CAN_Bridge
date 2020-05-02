@@ -24,6 +24,7 @@
 #include "usb_device.h"
 #include "nvs.h"
 #include "rx_queue.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -212,8 +213,10 @@ int main(void)
   RunTests(); // this is function to run transmission tests 
  
   // this is loopback cycle
-  CLI_Loop();
-
+  if (!GPIO_usb_is_connected())
+  {
+    CLI_Loop();
+  }
   /* USER CODE END 2 */
 
 
@@ -575,30 +578,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-#define LEDG_PIN GPIO_PIN_7
-#define LEDG_GPIO GPIOA
-
-#define LEDB_PIN GPIO_PIN_6
-#define LEDB_GPIO GPIOA
-
-#define LEDR_PIN GPIO_PIN_5
-#define LEDR_GPIO GPIOA
-
-void User_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LEDG_GPIO, LEDG_PIN|LEDB_PIN|LEDR_PIN, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = LEDG_PIN|LEDB_PIN|LEDR_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LEDG_GPIO, &GPIO_InitStruct);
-}
 
 uint32_t toggle_time_r = 0;
 uint32_t toggle_time_g = 0;
