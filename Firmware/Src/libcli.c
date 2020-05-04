@@ -584,7 +584,7 @@ struct cli_def *cli_init()
         free_z(cli);
         return 0;
     }
-    cli->telnet_protocol = 1;
+    cli->telnet_protocol = 0;
 
     cli_register_command(cli, 0, "help", cli_int_help, PRIVILEGE_UNPRIVILEGED, MODE_ANY, "Show available commands");
     cli_register_command(cli, 0, "quit", cli_int_quit, PRIVILEGE_UNPRIVILEGED, MODE_ANY, "Exit from CLI mode");

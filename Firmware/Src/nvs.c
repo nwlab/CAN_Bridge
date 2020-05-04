@@ -70,7 +70,7 @@ nvs_result_t nvs_commit()
     uint32_t const* itr = (uint32_t const*)(nvs_memory);
     for (uint32_t i = 0; i < (FLASH_CFG_SIZE / 4); i++)
     {
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FLASH_CFG_START_ADDRESS + ( i * 4 ), itr[i]) != HAL_OK)
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, (uint32_t)(&nvs_memory_flash[0]) + ( i * 4 ), itr[i]) != HAL_OK)
         {
             HAL_FLASH_Lock();
             return UNKNOWN_ERROR;

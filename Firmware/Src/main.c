@@ -22,14 +22,16 @@
 #include "main.h"
 #include "fatfs.h"
 #include "usb_device.h"
-#include "nvs.h"
-#include "rx_queue.h"
-#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "nvs.h"
+#include "rx_queue.h"
 #include "cli.h"
 #include "uart.h"
+#include "gpio.h"
+#include "filesystem.h"
+#include "logger.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,6 +52,8 @@
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
 
+RTC_HandleTypeDef hrtc;
+
 SD_HandleTypeDef hsd;
 
 UART_HandleTypeDef huart3;
@@ -57,6 +61,8 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 volatile uint8_t gSystemInitialized = 0;
+
+unsigned char bLogging = 0; // if =1 than we logging to SD card
 
 static CanTxMsgTypeDef        Tx1Message;
 static CanRxMsgTypeDef        Rx1Message;
@@ -116,6 +122,7 @@ static void MX_USART3_UART_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
 static void MX_SDIO_SD_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 void User_GPIO_Init(void);
@@ -128,10 +135,6 @@ void LedR_Toggle(void);
 void ProcessModification(CanTxMsgTypeDef* pTxMsg);
 void RunTests(void);
 void CAN_CancelTransmit(CAN_HandleTypeDef* hcan);
-
-void RxQueuePut(uint8_t data);
-uint8_t RxQueueGet(void);
-uint8_t RxQueueNotEmpty(void);
 
 void UART_ProcessData(uint8_t rx);
 
@@ -179,7 +182,8 @@ int main(void)
   MX_CAN1_Init();
   MX_CAN2_Init();
   MX_SDIO_SD_Init();
-//  MX_FATFS_Init();
+  MX_FATFS_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   User_GPIO_Init();
   LedG(1);
@@ -195,6 +199,15 @@ int main(void)
 
   /* Read parameters from nvram */
   Read_Param();
+
+  if (init_filesystem() == FILESYSTEM_INIT_OK)
+  {
+    printf("\n\rFS mount successfuly\n\r");
+  }
+  else
+  {
+    printf("Error mount FS");
+  }
 
   /*##-2- Start the Reception process and enable reception interrupt #########*/
   if (HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
@@ -213,16 +226,17 @@ int main(void)
   RunTests(); // this is function to run transmission tests 
  
   // this is loopback cycle
-  if (!GPIO_usb_is_connected())
+  if (GPIO_usb_is_connected())
   {
     CLI_Loop();
   }
   /* USER CODE END 2 */
-
-
+ 
+ 
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  DEBUG_MSG("Original infinite loop");
   while (1)
   {
     /* USER CODE END WHILE */
@@ -234,63 +248,6 @@ int main(void)
   /* USER CODE END 3 */
 }
 
-/*
- *
- */
-void CAN_Loop()
-{
-    if (bCAN2_TxReq)
-    {
-      LedR(1);
-      ProcessModification(hcan2.pTxMsg);
-      LedR(0);
-      if (HAL_CAN_Transmit_IT(&hcan2) != HAL_OK)
-      {
-        /* Transmition Error */
-        LedR_Toggle();
-        
-        // if we tried hard so many times -- restart CAN
-        iCAN2_Timeout++;
-        if (iCAN2_Timeout > MAX_SEND_TRY_COUNT)
-        {
-          iCAN2_Timeout = 0;
-          //CAN_CancelTransmit(&hcan2);
-          HAL_NVIC_SystemReset();
-        }
-      }
-      else
-      {
-        bCAN2_TxReq = 0;
-        iCAN2_Timeout = 0;
-      }
-    }
-    
-    if (bCAN1_TxReq)
-    {
-      //ProcessModification(hcan1.pTxMsg); // TODO: maybe add CAN instance selector in replacement data?
-
-      if (HAL_CAN_Transmit_IT(&hcan1) != HAL_OK)
-      {
-        /* Transmition Error */
-        LedR_Toggle();
-        
-        // if we tried hard so many times -- restart CAN
-        iCAN1_Timeout++;
-        if (iCAN1_Timeout > MAX_SEND_TRY_COUNT)
-        {
-          iCAN1_Timeout = 0;
-          //CAN_CancelTransmit(&hcan1);
-          HAL_NVIC_SystemReset();
-        }
-      }
-      else
-      {
-        bCAN1_TxReq = 0;
-        iCAN1_Timeout = 0;
-      }
-    }
-}
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -299,6 +256,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage 
   */
@@ -306,8 +264,9 @@ void SystemClock_Config(void)
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
   /** Initializes the CPU, AHB and APB busses clocks 
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 4;
@@ -328,6 +287,12 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+  PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
@@ -492,6 +457,68 @@ static void MX_CAN2_Init(void)
 }
 
 /**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+  /** Initialize RTC Only 
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+    
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date 
+  */
+  sTime.Hours = 0x0;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x20;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
   * @brief SDIO Initialization Function
   * @param None
   * @retval None
@@ -513,14 +540,6 @@ static void MX_SDIO_SD_Init(void)
   hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
   hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
   hsd.Init.ClockDiv = 0;
-  if (HAL_SD_Init(&hsd) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_SD_ConfigWideBusOperation(&hsd, SDIO_BUS_WIDE_4B) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN SDIO_Init 2 */
 
   /* USER CODE END SDIO_Init 2 */
@@ -578,6 +597,65 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/*
+ *
+ */
+void CAN_Loop()
+{
+    if (bCAN2_TxReq)
+    {
+      LedR(1);
+      ProcessModification(hcan2.pTxMsg);
+      LedR(0);
+      if (HAL_CAN_Transmit_IT(&hcan2) != HAL_OK)
+      {
+        /* Transmition Error */
+        LedR_Toggle();
+
+        // if we tried hard so many times -- restart CAN
+        iCAN2_Timeout++;
+        if (iCAN2_Timeout > MAX_SEND_TRY_COUNT)
+        {
+          iCAN2_Timeout = 0;
+          //CAN_CancelTransmit(&hcan2);
+          HAL_NVIC_SystemReset();
+        }
+      }
+      else
+      {
+        bCAN2_TxReq = 0;
+        iCAN2_Timeout = 0;
+      }
+    }
+
+    if (bCAN1_TxReq)
+    {
+      //ProcessModification(hcan1.pTxMsg); // TODO: maybe add CAN instance selector in replacement data?
+
+      if (HAL_CAN_Transmit_IT(&hcan1) != HAL_OK)
+      {
+        /* Transmition Error */
+        LedR_Toggle();
+
+        // if we tried hard so many times -- restart CAN
+        iCAN1_Timeout++;
+        if (iCAN1_Timeout > MAX_SEND_TRY_COUNT)
+        {
+          iCAN1_Timeout = 0;
+          //CAN_CancelTransmit(&hcan1);
+          HAL_NVIC_SystemReset();
+        }
+      }
+      else
+      {
+        bCAN1_TxReq = 0;
+        iCAN1_Timeout = 0;
+      }
+    }
+
+    write_log();
+}
 
 uint32_t toggle_time_r = 0;
 uint32_t toggle_time_g = 0;

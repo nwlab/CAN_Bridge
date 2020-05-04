@@ -32,7 +32,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -77,8 +77,6 @@ extern "C" {
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/
-#define Error_Handler() __Error_Handler(__FUNCTION__, __LINE__)
-void __Error_Handler(const char *func, int line);
 
 /* USER CODE BEGIN EFP */
 void LedG(uint8_t On);
@@ -87,6 +85,9 @@ void LedB(uint8_t On);
 void LedB_Toggle(void);
 void LedR(uint8_t On);
 void LedR_Toggle(void);
+
+#define Error_Handler() __Error_Handler(__FUNCTION__, __LINE__)
+void __Error_Handler(const char *func, int line);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
