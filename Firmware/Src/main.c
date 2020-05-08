@@ -61,6 +61,7 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 volatile uint8_t gSystemInitialized = 0;
+volatile uint8_t gFSInitialized = 0;
 
 unsigned char bLogging = 0; // if =1 than we logging to SD card
 
@@ -75,11 +76,11 @@ static uint8_t bCAN2_TxReq = 0;
 static uint32_t iCAN1_Timeout = 0;
 static uint32_t iCAN2_Timeout = 0;
 
-// if defined CAN2 acting as loopback
-//#define CAN1_LOOPBACK
+// if defined CAN1 acting as loopback
+#define CAN1_LOOPBACK
 
 // if defined CAN2 acting as loopback
-//#define CAN2_LOOPBACK
+#define CAN2_LOOPBACK
 
 int iCAN1_Prescaler         = 6;
 int iCAN2_Prescaler         = 6;
@@ -133,6 +134,7 @@ void LedB_Toggle(void);
 void LedR(uint8_t On);
 void LedR_Toggle(void);
 void ProcessModification(CanTxMsgTypeDef* pTxMsg);
+void ProcessLogging(CanRxMsgTypeDef *pTxMsg);
 void RunTests(void);
 void CAN_CancelTransmit(CAN_HandleTypeDef* hcan);
 
@@ -196,6 +198,7 @@ int main(void)
  /* Output a message on Hyperterminal using printf function */
   printf("\n\rCAN Bridge\n\r");
   printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
+  INFO_MSG("CPU speed  : %ld MHz", SystemCoreClock / 1000000);
 
   /* Read parameters from nvram */
   Read_Param();
@@ -203,6 +206,7 @@ int main(void)
   if (init_filesystem() == FILESYSTEM_INIT_OK)
   {
     printf("\n\rFS mount successfuly\n\r");
+    gFSInitialized = 1;
   }
   else
   {
@@ -270,9 +274,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 72;
+  RCC_OscInitStruct.PLL.PLLN = 168;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 3;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -283,10 +287,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
     Error_Handler();
   }
@@ -337,25 +341,28 @@ static void MX_CAN1_Init(void)
   hcan1.pTxMsg = &Tx1Message;
   hcan1.pRxMsg = &Rx1Message;
 
-  hcan1.Init.Prescaler = iCAN1_Prescaler; //3 -- 1Msps
+  hcan1.Init.Prescaler = iCAN1_Prescaler; //3 -- 1Msps , 6 -- 500Kbps
   #ifdef CAN1_LOOPBACK
     hcan1.Init.Mode = CAN_MODE_LOOPBACK;
   #else
     hcan1.Init.Mode = CAN_MODE_NORMAL;
   #endif
   hcan1.Init.SJW = CAN_SJW_1TQ;
-  hcan1.Init.BS1 = CAN_BS1_6TQ;
-  hcan1.Init.BS2 = CAN_BS2_5TQ;
+  hcan1.Init.BS1 = CAN_BS1_11TQ;
+  hcan1.Init.BS2 = CAN_BS2_2TQ;
   hcan1.Init.TTCM = DISABLE;
   hcan1.Init.ABOM = DISABLE;
   hcan1.Init.AWUM = DISABLE;
   hcan1.Init.NART = DISABLE;
   hcan1.Init.RFLM = DISABLE;
   hcan1.Init.TXFP = DISABLE;
-  HAL_CAN_Init(&hcan1);
-
+  if (HAL_CAN_Init(&hcan1) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   /*##-2- Configure the CAN Filter ###########################################*/
+
   sFilterConfig.FilterNumber = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
@@ -417,24 +424,27 @@ static void MX_CAN2_Init(void)
   hcan2.pTxMsg = &Tx2Message;
   hcan2.pRxMsg = &Rx2Message;
 
-  hcan2.Init.Prescaler = iCAN2_Prescaler; //3 -- 1Msps
+  hcan2.Init.Prescaler = iCAN2_Prescaler; //3 -- 1Msps, 6 --500kBps
   #ifdef CAN2_LOOPBACK
     hcan2.Init.Mode = CAN_MODE_LOOPBACK;
   #else
     hcan2.Init.Mode = CAN_MODE_NORMAL;
   #endif
   hcan2.Init.SJW = CAN_SJW_1TQ;
-  hcan2.Init.BS1 = CAN_BS1_6TQ;
-  hcan2.Init.BS2 = CAN_BS2_5TQ;
+  hcan2.Init.BS1 = CAN_BS1_11TQ;
+  hcan2.Init.BS2 = CAN_BS2_2TQ;
   hcan2.Init.TTCM = DISABLE;
   hcan2.Init.ABOM = DISABLE;
   hcan2.Init.AWUM = DISABLE;
   hcan2.Init.NART = DISABLE;
   hcan2.Init.RFLM = DISABLE;
   hcan2.Init.TXFP = DISABLE;
-  HAL_CAN_Init(&hcan2);
-
+  if (HAL_CAN_Init(&hcan2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /*##-2- Configure the CAN Filter ###########################################*/
+
   sFilterConfig.FilterNumber = 14;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
@@ -503,10 +513,10 @@ static void MX_RTC_Init(void)
   {
     Error_Handler();
   }
-  sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
   sDate.Month = RTC_MONTH_JANUARY;
   sDate.Date = 0x1;
-  sDate.Year = 0x20;
+  sDate.Year = 0x0;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
   {
@@ -753,8 +763,12 @@ void HAL_CAN_RxCpltCallback(CAN_HandleTypeDef *CanHandle)
 {
   uint8_t bAccept = 0;
   
+  DEBUG_MSG("can1 : %s",(CanHandle == &hcan1?"1":"2") );
+
   if (CanHandle == &hcan1)
   {
+    ProcessLogging(hcan1.pRxMsg);
+
     // software packet filter
     if (hcan1.pRxMsg->IDE == CAN_ID_STD)
     {
@@ -1136,10 +1150,10 @@ void Read_Param()
 // Functional tests for transmission
 //----------------------------------------------------------------------------------------
 // type of CAN ID for tests
-//#define TEST_STD // if not defined, then Extended ID used
+// #define TEST_STD // if not defined, then Extended ID used
 
 // if defined CAN1 constantly transmits the data
-//#define TEST_CAN1_TRANSMIT
+// #define TEST_CAN1_TRANSMIT
 
 // if defined CAN2 constantly transmits the data
 //#define TEST_CAN2_TRANSMIT
@@ -1165,7 +1179,7 @@ void Read_Param()
 
 void RunTests()
 {
-#if defined(TEST_CAN1_INJECTION) || defined(TEST_CAN2_INJECTION)
+#if defined(TEST_CAN1_INJECTION) || defined(TEST_CAN2_INJECTION) || defined(TEST_CAN1_TRANSMIT) || defined(TEST_CAN2_TRANSMIT)
   uint32_t tickstart = 0;
   CanTxMsgTypeDef *pTxMsg;
   CanRxMsgTypeDef *pRxMsg;
@@ -1274,6 +1288,8 @@ void RunTests()
         bCAN1_TxReq = 0; 
       #endif
       
+        DEBUG_MSG("ErrorCode: %x", (int)hcan->ErrorCode);
+        DEBUG_MSG("State: %x", (int)hcan->State);
       // sending
       //if (HAL_CAN_Transmit_IT(hcan) != HAL_OK)
       if (HAL_CAN_Transmit(hcan, 10) != HAL_OK)
@@ -1331,7 +1347,12 @@ void RunTests()
       pTxMsg->Data[6] &= TEST_TRANSMIT_MASK;
       pTxMsg->Data[7] &= TEST_TRANSMIT_MASK;
       
-      if (RxQueueNotEmpty()) UART_ProcessData(RxQueueGet()); 
+      // waiting one second
+      tickstart = HAL_GetTick();
+      while((HAL_GetTick() - tickstart) < 1000)
+      {
+        if (rx_queue_not_empty()) UART_ProcessData(rx_queue_get());
+      }
     }
   #endif
 }

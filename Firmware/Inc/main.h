@@ -44,7 +44,7 @@ extern "C" {
 /* USER CODE BEGIN EC */
 #define FLASH_CFG_START_ADDRESS ((uint32_t)0x0800C000u)   /*Sector 3*/
 #define FLASH_CFG_START_SECTOR  (FLASH_SECTOR_3)
-#define FLASH_CFG_SIZE          512 /*0x4000 */
+#define FLASH_CFG_SIZE          2048 /*0x4000 */
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

@@ -15,14 +15,20 @@
   *
   ******************************************************************************
   */
-#include <time.h>
+
 #include "fatfs.h"
-#include "rtc.h"
 
 uint8_t retSD;    /* Return value for SD */
 char SDPath[4];   /* SD logical drive path */
-// FATFS SDFatFS;    /* File system object for SD logical drive */
+FATFS SDFatFS;    /* File system object for SD logical drive */
 FIL SDFile;       /* File object for SD */
+
+/* USER CODE BEGIN VolToPart */
+/* Volume - Partition resolution table should be user defined in case of Multiple partition */
+/* When multi-partition feature is enabled (1), each logical drive number is bound to arbitrary physical drive and partition
+listed in the VolToPart[] */
+PARTITION VolToPart[];
+/* USER CODE END VolToPart */  
 
 /* USER CODE BEGIN Variables */
 

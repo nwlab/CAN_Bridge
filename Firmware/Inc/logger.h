@@ -8,6 +8,7 @@
 #ifndef INC_LOGGER_H_
 #define INC_LOGGER_H_
 
+void read_config_file();
 void start_log();
 void request_write();
 void write_log();

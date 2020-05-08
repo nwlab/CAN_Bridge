@@ -63,6 +63,8 @@ void main_tick_1s();
 
 /* External variables --------------------------------------------------------*/
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
+extern CAN_HandleTypeDef hcan1;
+extern CAN_HandleTypeDef hcan2;
 extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
 volatile uint32_t msCount = 0;
@@ -242,6 +244,34 @@ void RCC_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles CAN1 TX interrupts.
+  */
+void CAN1_TX_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN1_TX_IRQn 0 */
+
+  /* USER CODE END CAN1_TX_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan1);
+  /* USER CODE BEGIN CAN1_TX_IRQn 1 */
+
+  /* USER CODE END CAN1_TX_IRQn 1 */
+}
+
+/**
+  * @brief This function handles CAN1 RX0 interrupts.
+  */
+void CAN1_RX0_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN1_RX0_IRQn 0 */
+
+  /* USER CODE END CAN1_RX0_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan1);
+  /* USER CODE BEGIN CAN1_RX0_IRQn 1 */
+
+  /* USER CODE END CAN1_RX0_IRQn 1 */
+}
+
+/**
   * @brief This function handles USART3 global interrupt.
   */
 void USART3_IRQHandler(void)
@@ -253,6 +283,34 @@ void USART3_IRQHandler(void)
   /* USER CODE BEGIN USART3_IRQn 1 */
 
   /* USER CODE END USART3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles CAN2 TX interrupts.
+  */
+void CAN2_TX_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN2_TX_IRQn 0 */
+
+  /* USER CODE END CAN2_TX_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan2);
+  /* USER CODE BEGIN CAN2_TX_IRQn 1 */
+
+  /* USER CODE END CAN2_TX_IRQn 1 */
+}
+
+/**
+  * @brief This function handles CAN2 RX0 interrupts.
+  */
+void CAN2_RX0_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN2_RX0_IRQn 0 */
+
+  /* USER CODE END CAN2_RX0_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan2);
+  /* USER CODE BEGIN CAN2_RX0_IRQn 1 */
+
+  /* USER CODE END CAN2_RX0_IRQn 1 */
 }
 
 /**

@@ -29,22 +29,49 @@
 #else
 /* USER CODE BEGIN FirstSection */
 /* can be used to modify / undefine following code or add new definitions */
+#include "main.h"
 /* USER CODE END FirstSection */
 /* Includes ------------------------------------------------------------------*/
 #include "bsp_driver_sd.h"
-#include "main.h"
+
 /* Extern variables ---------------------------------------------------------*/ 
 
 extern SD_HandleTypeDef hsd;
 
 /* USER CODE BEGIN BeforeInitSection */
 /* can be used to modify / undefine following code or add code */
+#if 0
 /* USER CODE END BeforeInitSection */
 /**
   * @brief  Initializes the SD card device.
   * @retval SD status
   */
 __weak uint8_t BSP_SD_Init(void)
+{
+  uint8_t sd_state = MSD_OK;
+  /* Check if the SD card is plugged in the slot */
+  if (BSP_SD_IsDetected() != SD_PRESENT)
+  {
+    return MSD_ERROR;
+  }
+  /* HAL SD initialization */
+  sd_state = HAL_SD_Init(&hsd);
+  /* Configure SD Bus width (4 bits mode selected) */
+  if (sd_state == MSD_OK)
+  {
+    /* Enable wide operation */
+    if (HAL_SD_ConfigWideBusOperation(&hsd, SDIO_BUS_WIDE_4B) != HAL_OK)
+    {
+      sd_state = MSD_ERROR;
+    }
+  }
+
+  return sd_state;
+}
+/* USER CODE BEGIN AfterInitSection */
+/* can be used to modify previous code / undefine following code / add code */
+#else
+uint8_t BSP_SD_Init(void)
 {
   volatile int retry = 5;
   uint8_t sd_state = MSD_OK;
@@ -78,8 +105,7 @@ __weak uint8_t BSP_SD_Init(void)
 
   return sd_state;
 }
-/* USER CODE BEGIN AfterInitSection */
-/* can be used to modify previous code / undefine following code / add code */
+#endif
 /* USER CODE END AfterInitSection */
 
 /* USER CODE BEGIN InterruptMode */

@@ -103,13 +103,20 @@ int cmd_can(struct cli_def *cli, const char *command, char *argv[], int argc)
   int iCAN2_Prescaler;
   int iReplace_Count;
   uint16_t size = 0;
-  nvs_get("c1_pre", (uint8_t*) &iCAN1_Prescaler, &size, sizeof(iCAN1_Prescaler));
-  nvs_get("c2_pre", (uint8_t*) &iCAN2_Prescaler, &size, sizeof(iCAN2_Prescaler));
-  nvs_get("repl_cnt", (uint8_t*) &iReplace_Count, &size, sizeof(iReplace_Count));
+  if (argc > 0)
+  {
 
-  cli_print(cli, "CAN1 Baudrate : %d", (int) (1000 * 3.0 / (float) (iCAN1_Prescaler) + 0.5));
-  cli_print(cli, "CAN2 Baudrate : %d", (int) (1000 * 3.0 / (float) (iCAN2_Prescaler) + 0.5));
-  cli_print(cli, "Replace count : %d", iReplace_Count);
+  }
+  else
+  {
+    nvs_get("c1_pre", (uint8_t*) &iCAN1_Prescaler, &size, sizeof(iCAN1_Prescaler));
+    nvs_get("c2_pre", (uint8_t*) &iCAN2_Prescaler, &size, sizeof(iCAN2_Prescaler));
+    nvs_get("repl_cnt", (uint8_t*) &iReplace_Count, &size, sizeof(iReplace_Count));
+
+    cli_print(cli, "CAN1 Baudrate : %d", (int) (1000 * 3.0 / (float) (iCAN1_Prescaler) + 0.5));
+    cli_print(cli, "CAN2 Baudrate : %d", (int) (1000 * 3.0 / (float) (iCAN2_Prescaler) + 0.5));
+    cli_print(cli, "Replace count : %d", iReplace_Count);
+  }
 
   return CLI_OK;
 }
@@ -118,16 +125,27 @@ extern unsigned char bLogging; // if =1 than we logging to SD card
 
 int cmd_log(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
-  if (bLogging)
+  if (argc > 0)
   {
-    cli_print(cli, "Logger already started");
-    return CLI_OK;
+    if (strcmp(argv[0], "?") == 0)
+    {
+      cli_print(cli, "Specify parameter name");
+      return CLI_OK;
+    }
   }
+  else
+  {
+    if (bLogging)
+    {
+      cli_print(cli, "Logger already started");
+      return CLI_OK;
+    }
 
-  bLogging = 1;
+    bLogging = 1;
 
-  start_log();
+    start_log();
 
+  }
   return CLI_OK;
 }
 
@@ -151,7 +169,28 @@ int cmd_date(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
   if (argc > 0)
   {
+    int year, month, day;
+    if (3 != sscanf(argv[0], "%d-%d-%d", &day, &month, &year))
+    {
+      cli_print(cli, "Error date format");
+    }
+    else
+    {
+      RTC_DateTypeDef sDate;
+      HAL_StatusTypeDef res;
 
+      memset(&sDate, 0, sizeof(sDate));
+
+      sDate.Year = year;
+      sDate.Month = month;
+      sDate.Date = day;
+
+      res = HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+      if (res != HAL_OK)
+      {
+        cli_print(cli, "HAL_RTC_SetDate failed: %d", res);
+      }
+    }
   }
   else
   {
@@ -168,6 +207,28 @@ int cmd_time(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
   if (argc > 0)
   {
+    int hour, min, sec;
+    if (3 != sscanf(argv[0], "%d:%d:%d", &hour, &min, &sec))
+    {
+      cli_print(cli, "Error time format");
+    }
+    else
+    {
+      RTC_TimeTypeDef sTime;
+      HAL_StatusTypeDef res;
+
+      memset(&sTime, 0, sizeof(sTime));
+
+      sTime.Hours = hour;
+      sTime.Minutes = min;
+      sTime.Seconds = sec;
+
+      res = HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+      if (res != HAL_OK)
+      {
+        cli_print(cli, "HAL_RTC_SetTime failed: %d", res);
+      }
+    }
   }
   else
   {
@@ -175,7 +236,9 @@ int cmd_time(struct cli_def *cli, const char *command, char *argv[], int argc)
     RTC_TimeTypeDef sTime;
     /* Get the RTC current Time */
     HAL_RTC_GetTime(&hrtc, &sTime, FORMAT_BCD);
-    cli_print(cli, "%.2d:%.2d:%.2d",( (sTime.Hours & 0x0F) + ((sTime.Hours & 0xF0)>>4)*10 ), ( (sTime.Minutes & 0x0F) + ((sTime.Minutes & 0xF0)>>4)*10 ), ( (sTime.Seconds & 0x0F) + ((sTime.Seconds & 0xF0)>>4)*10 ));
+    cli_print(cli, "%.2d:%.2d:%.2d", ((sTime.Hours & 0x0F) + ((sTime.Hours & 0xF0) >> 4) * 10),
+        ((sTime.Minutes & 0x0F) + ((sTime.Minutes & 0xF0) >> 4) * 10),
+        ((sTime.Seconds & 0x0F) + ((sTime.Seconds & 0xF0) >> 4) * 10));
   }
   return CLI_OK;
 }

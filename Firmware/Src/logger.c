@@ -11,9 +11,10 @@
 #include "main.h"
 #include "rtc.h"
 #include "filesystem.h"
+#include "nvs.h"
 
-#define SD_WRITE_BUFFER             (1024*49)//(1024*21)   // 21K
-#define SD_WRITE_BUFFER_FLUSH_LIMIT (1024*48)//(1024*20)   // 20K
+#define SD_WRITE_BUFFER             (1024*32)//(1024*21)   // 21K
+#define SD_WRITE_BUFFER_FLUSH_LIMIT (1024*31)//(1024*20)   // 20K
 
 // buffer for collecting data to write
 char sd_buffer[SD_WRITE_BUFFER];
@@ -99,6 +100,39 @@ int iSecond;
 char sLine[STRLINE_LENGTH];
 uint32_t stLastWriting;
 unsigned char bIncludeTimestamp = 1;
+int iFilterMask = 0;
+int iFilterValue = 0;
+unsigned char bLogStdMsgs = 1;
+unsigned char bLogExtMsgs = 1;
+char sTmp[128];
+
+void read_config_file()
+{
+  uint16_t size = 0;
+
+  if (nvs_get("log_ext", (uint8_t*)&bLogExtMsgs, &size, sizeof(bLogExtMsgs)) == KEY_NOT_FOUND ||
+      nvs_get("log_std", (uint8_t*)&bLogStdMsgs, &size, sizeof(bLogStdMsgs)) == KEY_NOT_FOUND ||
+      nvs_get("log_time", (uint8_t*)&bIncludeTimestamp, &size, sizeof(bIncludeTimestamp)) == KEY_NOT_FOUND ||
+      nvs_get("log_idfv", (uint8_t*)&iFilterValue, &size, sizeof(iFilterValue)) == KEY_NOT_FOUND ||
+      nvs_get("log_idfm", (uint8_t*)&iFilterMask, &size, sizeof(iFilterMask)) == KEY_NOT_FOUND)
+  {
+    DEBUG_MSG("No LOG parameters in NVS, Set to default");
+    iFilterMask = 0;
+    iFilterValue = 0;
+    bIncludeTimestamp = 1;
+    bLogStdMsgs = 1;
+    bLogExtMsgs = 1;
+    nvs_put("log_ext", (uint8_t*)&bLogExtMsgs, sizeof(bLogExtMsgs), sizeof(bLogExtMsgs));
+    nvs_put("log_std", (uint8_t*)&bLogStdMsgs, sizeof(bLogStdMsgs), sizeof(bLogStdMsgs));
+    nvs_put("log_time", (uint8_t*)&bIncludeTimestamp, sizeof(bIncludeTimestamp), sizeof(bIncludeTimestamp));
+    nvs_put("log_idfv", (uint8_t*)&iFilterValue, sizeof(iFilterValue), sizeof(iFilterValue));
+    nvs_put("log_idfm", (uint8_t*)&iFilterMask, sizeof(iFilterMask), sizeof(iFilterMask));
+    if (nvs_commit() != NVS_OK)
+    {
+      DEBUG_MSG("Flash commit failed");
+    }
+  }
+}
 
 void start_log()
 {
@@ -139,14 +173,65 @@ void write_log()
   if (bReqWrite && file)
   {
     LedB(1);
+    DEBUG_MSG("Write log to file %s", sLine);
     if (fwrite_(sd_buffer_for_write, 1, sd_buffer_length_for_write, file) != sd_buffer_length_for_write)
       bWriteFault = 2;
     if (f_sync(file) != FR_OK)
       bWriteFault = 2;
     bReqWrite = 0;
 
+    if (bWriteFault)
+    {
+      DEBUG_MSG("Write fault : %d", bWriteFault);
+    }
     stLastWriting = HAL_GetTick(); // record time when we did write
 
     LedB(0);
+  }
+}
+
+void ProcessLogging(CanRxMsgTypeDef *pTxMsg)
+{
+  if (bLogging)
+  {
+    // checking message acceptance
+    if (pTxMsg->IDE)
+    {
+      // message with extended ID received
+
+      // are we accepting extended ID?
+      if (!bLogExtMsgs)
+        return;
+
+      // then check filter conditions
+      if ((pTxMsg->ExtId & iFilterMask) != (iFilterValue & iFilterMask))
+        return;
+    }
+    else
+    {
+      // message with standard ID received
+
+      // are we accepting standard ID?
+      if (!bLogStdMsgs)
+        return;
+
+      // then check filter conditions
+      if ((pTxMsg->StdId & iFilterMask) != (iFilterValue & iFilterMask))
+        return;
+    }
+
+    // write down data
+    if (bIncludeTimestamp)
+      sprintf(sTmp, "%d,%X", (int)HAL_GetTick(), (int)pTxMsg->ExtId);
+    else
+      sprintf(sTmp, "%X", (int)pTxMsg->ExtId);
+
+    for (i = 0; i < pTxMsg->DLC; i++)
+    {
+      sprintf(sTmp + strlen(sTmp), ",%02X", pTxMsg->Data[i]);
+    }
+
+    strcat(sTmp, "\r\n");
+    fwrite_string(sTmp);
   }
 }
