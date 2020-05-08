@@ -123,6 +123,12 @@ int cmd_can(struct cli_def *cli, const char *command, char *argv[], int argc)
 
 extern unsigned char bLogging; // if =1 than we logging to SD card
 
+/*
+ * log - show info
+ * log enable
+ * log disable
+ *
+ * */
 int cmd_log(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
   if (argc > 0)
@@ -185,7 +191,7 @@ int cmd_date(struct cli_def *cli, const char *command, char *argv[], int argc)
       sDate.Month = month;
       sDate.Date = day;
 
-      res = HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+      res = HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD);
       if (res != HAL_OK)
       {
         cli_print(cli, "HAL_RTC_SetDate failed: %d", res);
@@ -223,7 +229,7 @@ int cmd_time(struct cli_def *cli, const char *command, char *argv[], int argc)
       sTime.Minutes = min;
       sTime.Seconds = sec;
 
-      res = HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+      res = HAL_RTC_SetTime(&hrtc, &sTime, FORMAT_BCD);
       if (res != HAL_OK)
       {
         cli_print(cli, "HAL_RTC_SetTime failed: %d", res);

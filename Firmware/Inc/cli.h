@@ -10,6 +10,6 @@
 
 
 void CLI_Init();
-
+void CLI_Loop();
 
 #endif /* INC_CLI_H_ */

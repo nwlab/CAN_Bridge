@@ -77,6 +77,7 @@ extern "C" {
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/
+void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 void LedG(uint8_t On);
@@ -85,6 +86,9 @@ void LedB(uint8_t On);
 void LedB_Toggle(void);
 void LedR(uint8_t On);
 void LedR_Toggle(void);
+
+extern uint32_t toggle_time_g;
+extern uint32_t toggle_time_b;
 
 #define Error_Handler() __Error_Handler(__FUNCTION__, __LINE__)
 void __Error_Handler(const char *func, int line);

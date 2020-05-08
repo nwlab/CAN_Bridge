@@ -32,6 +32,7 @@
 #include "gpio.h"
 #include "filesystem.h"
 #include "logger.h"
+#include "can.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,54 +66,11 @@ volatile uint8_t gFSInitialized = 0;
 
 unsigned char bLogging = 0; // if =1 than we logging to SD card
 
-static CanTxMsgTypeDef        Tx1Message;
-static CanRxMsgTypeDef        Rx1Message;
-static CanTxMsgTypeDef        Tx2Message;
-static CanRxMsgTypeDef        Rx2Message;
-static uint8_t bCAN1_TxReq = 0;
-static uint8_t bCAN2_TxReq = 0;
-
-#define MAX_SEND_TRY_COUNT 15000 // this is about 20ms TX timeout (measured by scope)
-static uint32_t iCAN1_Timeout = 0;
-static uint32_t iCAN2_Timeout = 0;
-
 // if defined CAN1 acting as loopback
-#define CAN1_LOOPBACK
+// #define CAN1_LOOPBACK
 
 // if defined CAN2 acting as loopback
 #define CAN2_LOOPBACK
-
-int iCAN1_Prescaler         = 6;
-int iCAN2_Prescaler         = 6;
-int iCAN1_FilterIdHigh      = 0;
-int iCAN1_FilterIdLow       = 0;
-int iCAN1_FilterMaskIdHigh  = 0;
-int iCAN1_FilterMaskIdLow   = 0;
-int iCAN2_FilterIdHigh      = 0;
-int iCAN2_FilterIdLow       = 0;
-int iCAN2_FilterMaskIdHigh  = 0;
-int iCAN2_FilterMaskIdLow   = 0;
-int iReplace_Count = 0;
-
-typedef struct replace
-{
-  unsigned int IDMask;
-  unsigned int IDFilter;
-  unsigned int NewIDMask;
-  unsigned int NewIDValue;
-  unsigned int DataMaskHigh;
-  unsigned int DataMaskLow;
-  unsigned int DataFilterHigh;
-  unsigned int DataFilterLow;
-  unsigned int NewDataMaskHigh;
-  unsigned int NewDataMaskLow;
-  unsigned int NewDataValueHigh;
-  unsigned int NewDataValueLow;
-}replace_t;
-#define REPLACEMENT_SIZE (12)
-#define REPLACEMENT_MAX 32
-
-replace_t iReplace[REPLACEMENT_MAX] = {0};
 
 /* USER CODE END PV */
 
@@ -133,16 +91,14 @@ void LedB(uint8_t On);
 void LedB_Toggle(void);
 void LedR(uint8_t On);
 void LedR_Toggle(void);
-void ProcessModification(CanTxMsgTypeDef* pTxMsg);
-void ProcessLogging(CanRxMsgTypeDef *pTxMsg);
+void ProcessModification(CAN_TxHeaderTypeDef* pTxMsg);
 void RunTests(void);
 void CAN_CancelTransmit(CAN_HandleTypeDef* hcan);
 
 void UART_ProcessData(uint8_t rx);
 
 void Read_Param();
-void CLI_Loop();
-void CAN_Loop();
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -174,7 +130,9 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  nvs_init();
+  /* Read parameters from nvram */
+  CAN_Read_Param();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -188,9 +146,9 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   User_GPIO_Init();
+  CAN_Init();
   LedG(1);
 
-  nvs_init();
   CLI_Init();
 
   gSystemInitialized = 1;
@@ -199,9 +157,6 @@ int main(void)
   printf("\n\rCAN Bridge\n\r");
   printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
   INFO_MSG("CPU speed  : %ld MHz", SystemCoreClock / 1000000);
-
-  /* Read parameters from nvram */
-  Read_Param();
 
   if (init_filesystem() == FILESYSTEM_INIT_OK)
   {
@@ -213,20 +168,6 @@ int main(void)
     printf("Error mount FS");
   }
 
-  /*##-2- Start the Reception process and enable reception interrupt #########*/
-  if (HAL_CAN_Receive_IT(&hcan1, CAN_FIFO0) != HAL_OK)
-  {
-    /* Reception Error */
-    Error_Handler();
-  }
-  
-  /*##-2- Start the Reception process and enable reception interrupt #########*/
-  if (HAL_CAN_Receive_IT(&hcan2, CAN_FIFO0) != HAL_OK)
-  {
-    /* Reception Error */
-    Error_Handler();
-  }
-	
   RunTests(); // this is function to run transmission tests 
  
   // this is loopback cycle
@@ -236,8 +177,6 @@ int main(void)
   }
   /* USER CODE END 2 */
  
- 
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   DEBUG_MSG("Original infinite loop");
@@ -311,18 +250,18 @@ static void MX_CAN1_Init(void)
 {
 
   /* USER CODE BEGIN CAN1_Init 0 */
-
+  CAN_FilterTypeDef  sFilterConfig;
   /* USER CODE END CAN1_Init 0 */
 
   /* USER CODE BEGIN CAN1_Init 1 */
 #if 0
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 16;
+  hcan1.Init.Prescaler = 6;
   hcan1.Init.Mode = CAN_MODE_NORMAL;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_11TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan1.Init.TimeTriggeredMode = DISABLE;
   hcan1.Init.AutoBusOff = DISABLE;
   hcan1.Init.AutoWakeUp = DISABLE;
@@ -334,53 +273,45 @@ static void MX_CAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN1_Init 2 */
-#else
-  CAN_FilterConfTypeDef  sFilterConfig;
-
+#endif
+  /* Configure the CAN peripheral */
   hcan1.Instance = CAN1;
-  hcan1.pTxMsg = &Tx1Message;
-  hcan1.pRxMsg = &Rx1Message;
-
   hcan1.Init.Prescaler = iCAN1_Prescaler; //3 -- 1Msps , 6 -- 500Kbps
   #ifdef CAN1_LOOPBACK
     hcan1.Init.Mode = CAN_MODE_LOOPBACK;
   #else
     hcan1.Init.Mode = CAN_MODE_NORMAL;
   #endif
-  hcan1.Init.SJW = CAN_SJW_1TQ;
-  hcan1.Init.BS1 = CAN_BS1_11TQ;
-  hcan1.Init.BS2 = CAN_BS2_2TQ;
-  hcan1.Init.TTCM = DISABLE;
-  hcan1.Init.ABOM = DISABLE;
-  hcan1.Init.AWUM = DISABLE;
-  hcan1.Init.NART = DISABLE;
-  hcan1.Init.RFLM = DISABLE;
-  hcan1.Init.TXFP = DISABLE;
+  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_11TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+  hcan1.Init.TimeTriggeredMode = DISABLE;
+  hcan1.Init.AutoBusOff = DISABLE;
+  hcan1.Init.AutoWakeUp = DISABLE;
+  hcan1.Init.AutoRetransmission = DISABLE;
+  hcan1.Init.ReceiveFifoLocked = DISABLE;
+  hcan1.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan1) != HAL_OK)
   {
     Error_Handler();
   }
-
-  /*##-2- Configure the CAN Filter ###########################################*/
-
-  sFilterConfig.FilterNumber = 0;
+  /* Configure the CAN Filter */
+  sFilterConfig.FilterBank = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
-  sFilterConfig.FilterIdHigh = 0;
-  sFilterConfig.FilterIdLow = 0;
-  sFilterConfig.FilterMaskIdHigh = 0;
-  sFilterConfig.FilterMaskIdLow = 0;
-  sFilterConfig.FilterFIFOAssignment = 0;
+  sFilterConfig.FilterIdHigh = 0x0000;
+  sFilterConfig.FilterIdLow = 0x0000;
+  sFilterConfig.FilterMaskIdHigh = 0x0000;
+  sFilterConfig.FilterMaskIdLow = 0x0000;
+  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
   sFilterConfig.FilterActivation = ENABLE;
-  sFilterConfig.BankNumber = 14;
+  sFilterConfig.SlaveStartFilterBank = 14;
 
-
-  if (HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
+  if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
   {
-    // Filter configuration Error
+    /* Filter configuration Error */
     Error_Handler();
   }
-#endif
   /* USER CODE END CAN1_Init 2 */
 
 }
@@ -394,18 +325,18 @@ static void MX_CAN2_Init(void)
 {
 
   /* USER CODE BEGIN CAN2_Init 0 */
-
+  CAN_FilterTypeDef  sFilterConfig;
   /* USER CODE END CAN2_Init 0 */
 
   /* USER CODE BEGIN CAN2_Init 1 */
 #if 0
   /* USER CODE END CAN2_Init 1 */
   hcan2.Instance = CAN2;
-  hcan2.Init.Prescaler = 16;
+  hcan2.Init.Prescaler = 6;
   hcan2.Init.Mode = CAN_MODE_NORMAL;
   hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan2.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan2.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan2.Init.TimeSeg1 = CAN_BS1_11TQ;
+  hcan2.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan2.Init.TimeTriggeredMode = DISABLE;
   hcan2.Init.AutoBusOff = DISABLE;
   hcan2.Init.AutoWakeUp = DISABLE;
@@ -417,53 +348,46 @@ static void MX_CAN2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN2_Init 2 */
-#else
-  CAN_FilterConfTypeDef  sFilterConfig;
-
+#endif
+  /* Configure the CAN peripheral */
   hcan2.Instance = CAN2;
-  hcan2.pTxMsg = &Tx2Message;
-  hcan2.pRxMsg = &Rx2Message;
-
   hcan2.Init.Prescaler = iCAN2_Prescaler; //3 -- 1Msps, 6 --500kBps
   #ifdef CAN2_LOOPBACK
     hcan2.Init.Mode = CAN_MODE_LOOPBACK;
   #else
     hcan2.Init.Mode = CAN_MODE_NORMAL;
   #endif
-  hcan2.Init.SJW = CAN_SJW_1TQ;
-  hcan2.Init.BS1 = CAN_BS1_11TQ;
-  hcan2.Init.BS2 = CAN_BS2_2TQ;
-  hcan2.Init.TTCM = DISABLE;
-  hcan2.Init.ABOM = DISABLE;
-  hcan2.Init.AWUM = DISABLE;
-  hcan2.Init.NART = DISABLE;
-  hcan2.Init.RFLM = DISABLE;
-  hcan2.Init.TXFP = DISABLE;
+  hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan2.Init.TimeSeg1 = CAN_BS1_11TQ;
+  hcan2.Init.TimeSeg2 = CAN_BS2_2TQ;
+  hcan2.Init.TimeTriggeredMode = DISABLE;
+  hcan2.Init.AutoBusOff = DISABLE;
+  hcan2.Init.AutoWakeUp = DISABLE;
+  hcan2.Init.AutoRetransmission = ENABLE;
+  hcan2.Init.ReceiveFifoLocked = DISABLE;
+  hcan2.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan2) != HAL_OK)
   {
     Error_Handler();
   }
   /*##-2- Configure the CAN Filter ###########################################*/
-
-  sFilterConfig.FilterNumber = 14;
+  sFilterConfig.FilterBank = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
-  sFilterConfig.FilterIdHigh = 0;
-  sFilterConfig.FilterIdLow = 0;
-  sFilterConfig.FilterMaskIdHigh = 0;
-  sFilterConfig.FilterMaskIdLow = 0;
-  sFilterConfig.FilterFIFOAssignment = 0;
+  sFilterConfig.FilterIdHigh = 0x0000;
+  sFilterConfig.FilterIdLow = 0x0000;
+  sFilterConfig.FilterMaskIdHigh = 0x0000;
+  sFilterConfig.FilterMaskIdLow = 0x0000;
+  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
   sFilterConfig.FilterActivation = ENABLE;
-  sFilterConfig.BankNumber = 14;
+  sFilterConfig.SlaveStartFilterBank = 14;
 
-  if (HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
+  if(HAL_CAN_ConfigFilter(&hcan2, &sFilterConfig) != HAL_OK)
   {
-    // Filter configuration Error
+    /* Filter configuration Error */
     Error_Handler();
   }
-#endif
   /* USER CODE END CAN2_Init 2 */
-
 }
 
 /**
@@ -608,64 +532,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/*
- *
- */
-void CAN_Loop()
-{
-    if (bCAN2_TxReq)
-    {
-      LedR(1);
-      ProcessModification(hcan2.pTxMsg);
-      LedR(0);
-      if (HAL_CAN_Transmit_IT(&hcan2) != HAL_OK)
-      {
-        /* Transmition Error */
-        LedR_Toggle();
-
-        // if we tried hard so many times -- restart CAN
-        iCAN2_Timeout++;
-        if (iCAN2_Timeout > MAX_SEND_TRY_COUNT)
-        {
-          iCAN2_Timeout = 0;
-          //CAN_CancelTransmit(&hcan2);
-          HAL_NVIC_SystemReset();
-        }
-      }
-      else
-      {
-        bCAN2_TxReq = 0;
-        iCAN2_Timeout = 0;
-      }
-    }
-
-    if (bCAN1_TxReq)
-    {
-      //ProcessModification(hcan1.pTxMsg); // TODO: maybe add CAN instance selector in replacement data?
-
-      if (HAL_CAN_Transmit_IT(&hcan1) != HAL_OK)
-      {
-        /* Transmition Error */
-        LedR_Toggle();
-
-        // if we tried hard so many times -- restart CAN
-        iCAN1_Timeout++;
-        if (iCAN1_Timeout > MAX_SEND_TRY_COUNT)
-        {
-          iCAN1_Timeout = 0;
-          //CAN_CancelTransmit(&hcan1);
-          HAL_NVIC_SystemReset();
-        }
-      }
-      else
-      {
-        bCAN1_TxReq = 0;
-        iCAN1_Timeout = 0;
-      }
-    }
-
-    write_log();
-}
 
 uint32_t toggle_time_r = 0;
 uint32_t toggle_time_g = 0;
@@ -742,113 +608,6 @@ void LedR(uint8_t On)
 void LedR_Toggle()
 {
   HAL_GPIO_TogglePin(LEDR_GPIO, LEDR_PIN);
-}
-
-void CAN_CancelTransmit(CAN_HandleTypeDef* hcan)
-{
-  __HAL_CAN_CANCEL_TRANSMIT(hcan, CAN_TXMAILBOX_0);
-  __HAL_CAN_CANCEL_TRANSMIT(hcan, CAN_TXMAILBOX_1);
-  __HAL_CAN_CANCEL_TRANSMIT(hcan, CAN_TXMAILBOX_2); 
-  __HAL_CAN_DISABLE_IT(hcan, CAN_IT_TME);
-}
-
-
-/**
-  * @brief  Transmission  complete callback in non blocking mode
-  * @param  CanHandle: pointer to a CAN_HandleTypeDef structure that contains
-  *         the configuration information for the specified CAN.
-  * @retval None
-  */
-void HAL_CAN_RxCpltCallback(CAN_HandleTypeDef *CanHandle)
-{
-  uint8_t bAccept = 0;
-  
-  DEBUG_MSG("can1 : %s",(CanHandle == &hcan1?"1":"2") );
-
-  if (CanHandle == &hcan1)
-  {
-    ProcessLogging(hcan1.pRxMsg);
-
-    // software packet filter
-    if (hcan1.pRxMsg->IDE == CAN_ID_STD)
-    {
-      // standard ID
-      if ((hcan1.pRxMsg->StdId & iCAN1_FilterMaskIdLow) == iCAN1_FilterIdLow) bAccept = 1;
-    }
-    else
-    {
-      // extended ID
-      if ((hcan1.pRxMsg->ExtId & iCAN1_FilterMaskIdLow) == iCAN1_FilterIdLow) bAccept = 1;
-    }
-    
-    if (bAccept)
-    {
-      // CAN1 reception
-      LedG_Toggle();
-
-      // copy all stuff from RX CAN1 to TX CAN2
-      hcan2.pTxMsg->StdId = hcan1.pRxMsg->StdId;
-      hcan2.pTxMsg->RTR = hcan1.pRxMsg->RTR;
-      hcan2.pTxMsg->IDE = hcan1.pRxMsg->IDE;
-      hcan2.pTxMsg->ExtId = hcan1.pRxMsg->ExtId;
-      hcan2.pTxMsg->DLC = hcan1.pRxMsg->DLC;
-      hcan2.pTxMsg->Data[0] = hcan1.pRxMsg->Data[0];
-      hcan2.pTxMsg->Data[1] = hcan1.pRxMsg->Data[1];
-      hcan2.pTxMsg->Data[2] = hcan1.pRxMsg->Data[2];
-      hcan2.pTxMsg->Data[3] = hcan1.pRxMsg->Data[3];
-      hcan2.pTxMsg->Data[4] = hcan1.pRxMsg->Data[4];
-      hcan2.pTxMsg->Data[5] = hcan1.pRxMsg->Data[5];
-      hcan2.pTxMsg->Data[6] = hcan1.pRxMsg->Data[6];
-      hcan2.pTxMsg->Data[7] = hcan1.pRxMsg->Data[7];
-      
-      bCAN2_TxReq = 1;  // requesting transmission for CAN2
-    }
-  }
-  else
-  {
-    // software packet filter
-    if (hcan2.pRxMsg->IDE == CAN_ID_STD)
-    {
-      // standard ID
-      if ((hcan2.pRxMsg->StdId & iCAN2_FilterMaskIdLow) == iCAN2_FilterIdLow) bAccept = 1;
-    }
-    else
-    {
-      // extended ID
-      if ((hcan2.pRxMsg->ExtId & iCAN2_FilterMaskIdLow) == iCAN2_FilterIdLow) bAccept = 1;
-    }
-    
-    if (bAccept)
-    {
-      // CAN2 reception
-      LedB_Toggle(); 
-      
-      hcan1.pTxMsg->StdId = hcan2.pRxMsg->StdId;
-      hcan1.pTxMsg->RTR = hcan2.pRxMsg->RTR;
-      hcan1.pTxMsg->IDE = hcan2.pRxMsg->IDE;
-      hcan1.pTxMsg->ExtId = hcan2.pRxMsg->ExtId;
-      hcan1.pTxMsg->DLC = hcan2.pRxMsg->DLC;
-      hcan1.pTxMsg->Data[0] = hcan2.pRxMsg->Data[0];
-      hcan1.pTxMsg->Data[1] = hcan2.pRxMsg->Data[1];
-      hcan1.pTxMsg->Data[2] = hcan2.pRxMsg->Data[2];
-      hcan1.pTxMsg->Data[3] = hcan2.pRxMsg->Data[3];
-      hcan1.pTxMsg->Data[4] = hcan2.pRxMsg->Data[4];
-      hcan1.pTxMsg->Data[5] = hcan2.pRxMsg->Data[5];
-      hcan1.pTxMsg->Data[6] = hcan2.pRxMsg->Data[6];
-      hcan1.pTxMsg->Data[7] = hcan2.pRxMsg->Data[7];
-      
-      bCAN1_TxReq = 1; // requesting transmission for CAN1
-    }
-  }
-  
-
-  /* Resume receive */
-  __HAL_UNLOCK(CanHandle); // in case we arrived there from transmission
-  if (HAL_CAN_Receive_IT(CanHandle, CAN_FIFO0) != HAL_OK)
-  {
-    /* Reception Error */
-    Error_Handler();
-  }
 }
 
 //----------------------------------------------------------------------------------------
@@ -1051,98 +810,6 @@ void UART_ProcessData(uint8_t rx)
     }
     else
       bUartRxState = UART_STATE_WRITE_0;
-  }
-}
-
-//----------------------------------------------------------------------------------------
-// CAN packets data modification procedure
-//----------------------------------------------------------------------------------------
-
-void ProcessModification(CanTxMsgTypeDef* pTxMsg)
-{
-  unsigned int *iID;
-  int i;
-  unsigned int *iDataLow;
-  unsigned int *iDataHigh;
-
-  if (pTxMsg->IDE == CAN_ID_STD)
-    iID = (unsigned int *)&pTxMsg->StdId;
-  else
-    iID = (unsigned int *)&pTxMsg->ExtId;
-  
-  iDataLow = (unsigned int *)(&pTxMsg->Data);
-  iDataHigh = (unsigned int *)(&pTxMsg->Data[4]);
-  
-  for (i = 0; i < iReplace_Count; i++)
-  {
-    // if bit in "ID Mask" =1 AND bit in recieved ID = bit in "ID Filter", then packed ID is accepted for modification
-    // AND
-    // if bit in "Data Mask" =1 AND bit in recieved ID = bit in "Data Filter", then packed data is accepted for modification
-    
-    if ((*iID & iReplace[i].IDMask) != (iReplace[i].IDFilter & iReplace[i].IDMask)) continue;
-    if ((*iDataLow & iReplace[i].DataMaskLow) != (iReplace[i].DataFilterLow & iReplace[i].DataMaskLow)) continue;
-    if ((*iDataHigh & iReplace[i].DataMaskHigh) != (iReplace[i].DataFilterHigh & iReplace[i].DataMaskHigh)) continue;
-     
-    // here is data packed accepted by filter
-    
-    // if bit =1 in "New ID Mask" then the value of this bit is being replaced by bit from "New ID Value"
-    *iID = (*iID & ~(iReplace[i].NewIDMask)) | iReplace[i].NewIDValue;
-    
-    // if bit =1 in "New Data Mask" then the value of this bit is being replaced by bit from "New Data Value"
-    *iDataLow = (*iDataLow & ~(iReplace[i].NewDataMaskLow)) | (iReplace[i].NewDataValueLow & iReplace[i].NewDataMaskLow);
-    *iDataHigh = (*iDataHigh & ~(iReplace[i].NewDataMaskHigh)) | (iReplace[i].NewDataValueHigh & iReplace[i].NewDataMaskHigh);
-  }
-
-}
-
-//----------------------------------------------------------------------------------------
-// Read parameters from NVS
-//----------------------------------------------------------------------------------------
-void Read_Param()
-{
-  uint16_t size = 0;
-
-  if (nvs_get("c1_pre", (uint8_t*)&iCAN1_Prescaler, &size, sizeof(iCAN1_Prescaler)) == KEY_NOT_FOUND ||
-      nvs_get("c2_pre", (uint8_t*)&iCAN2_Prescaler, &size, sizeof(iCAN2_Prescaler)) == KEY_NOT_FOUND ||
-      nvs_get("c1_fih", (uint8_t*)&iCAN1_FilterIdHigh, &size, sizeof(iCAN1_FilterIdHigh)) == KEY_NOT_FOUND ||
-      nvs_get("c1_fil", (uint8_t*)&iCAN1_FilterIdLow, &size, sizeof(iCAN1_FilterIdLow)) == KEY_NOT_FOUND ||
-      nvs_get("c1_fmih", (uint8_t*)&iCAN1_FilterMaskIdHigh, &size, sizeof(iCAN1_FilterMaskIdHigh)) == KEY_NOT_FOUND ||
-      nvs_get("c1_fmil", (uint8_t*)&iCAN1_FilterMaskIdLow, &size, sizeof(iCAN1_FilterMaskIdLow)) == KEY_NOT_FOUND ||
-      nvs_get("c2_fih", (uint8_t*)&iCAN2_FilterIdHigh, &size, sizeof(iCAN2_FilterIdHigh)) == KEY_NOT_FOUND ||
-      nvs_get("c2_fil", (uint8_t*)&iCAN2_FilterIdLow, &size, sizeof(iCAN2_FilterIdLow)) == KEY_NOT_FOUND ||
-      nvs_get("c2_fmih", (uint8_t*)&iCAN2_FilterMaskIdHigh, &size, sizeof(iCAN2_FilterMaskIdHigh)) == KEY_NOT_FOUND ||
-      nvs_get("c2_fmil", (uint8_t*)&iCAN2_FilterMaskIdLow, &size, sizeof(iCAN2_FilterMaskIdLow)) == KEY_NOT_FOUND ||
-      nvs_get("repl_cnt", (uint8_t*)&iReplace_Count, &size, sizeof(iReplace_Count)) == KEY_NOT_FOUND ||
-      nvs_get("replace", (uint8_t*)&iReplace, &size, sizeof(iReplace)) == KEY_NOT_FOUND)
-  {
-    DEBUG_MSG("No parameters in NVS, Set to default");
-    iCAN1_Prescaler         = 6;
-    iCAN2_Prescaler         = 6;
-    iCAN1_FilterIdHigh      = 0;
-    iCAN1_FilterIdLow       = 0;
-    iCAN1_FilterMaskIdHigh  = 0;
-    iCAN1_FilterMaskIdLow   = 0;
-    iCAN2_FilterIdHigh      = 0;
-    iCAN2_FilterIdLow       = 0;
-    iCAN2_FilterMaskIdHigh  = 0;
-    iCAN2_FilterMaskIdLow   = 0;
-    iReplace_Count = 0;
-    nvs_put("c1_pre", (uint8_t *)&iCAN1_Prescaler, sizeof(iCAN1_Prescaler), sizeof(iCAN1_Prescaler));
-    nvs_put("c2_pre", (uint8_t *)&iCAN2_Prescaler, sizeof(iCAN2_Prescaler), sizeof(iCAN2_Prescaler));
-    nvs_put("c1_fih", (uint8_t *)&iCAN1_FilterIdHigh, sizeof(iCAN1_FilterIdHigh), sizeof(iCAN1_FilterIdHigh));
-    nvs_put("c1_fil", (uint8_t *)&iCAN1_FilterIdLow, sizeof(iCAN1_FilterIdLow), sizeof(iCAN1_FilterIdLow));
-    nvs_put("c1_fmih", (uint8_t *)&iCAN1_FilterMaskIdHigh, sizeof(iCAN1_FilterMaskIdHigh), sizeof(iCAN1_FilterMaskIdHigh));
-    nvs_put("c1_fmil", (uint8_t *)&iCAN1_FilterMaskIdLow, sizeof(iCAN1_FilterMaskIdLow), sizeof(iCAN1_FilterMaskIdLow));
-    nvs_put("c2_fih", (uint8_t *)&iCAN2_FilterIdHigh, sizeof(iCAN2_FilterIdHigh), sizeof(iCAN2_FilterIdHigh));
-    nvs_put("c2_fil", (uint8_t *)&iCAN2_FilterIdLow, sizeof(iCAN2_FilterIdLow), sizeof(iCAN2_FilterIdLow));
-    nvs_put("c2_fmih", (uint8_t *)&iCAN2_FilterMaskIdHigh, sizeof(iCAN2_FilterMaskIdHigh), sizeof(iCAN2_FilterMaskIdHigh));
-    nvs_put("c2_fmil", (uint8_t *)&iCAN2_FilterMaskIdLow, sizeof(iCAN2_FilterMaskIdLow), sizeof(iCAN2_FilterMaskIdLow));
-    nvs_put("repl_cnt", (uint8_t *)&iReplace_Count, sizeof(iReplace_Count), sizeof(iReplace_Count));
-    nvs_put("replace", (uint8_t *)&iReplace, sizeof(iReplace), sizeof(iReplace));
-    if (nvs_commit() != NVS_OK)
-    {
-      DEBUG_MSG("Flash commit failed");
-    }
   }
 }
 
@@ -1357,15 +1024,20 @@ void RunTests()
   #endif
 }
 
+#if 0
 /* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
   * @retval None
   */
-void __Error_Handler(const char *func, int line)
+void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
+#else
+void __Error_Handler(const char *func, int line)
+{
+#endif
   /* User can add his own implementation to report the HAL error return state */
   if (gSystemInitialized == 1)
   {
@@ -1392,8 +1064,8 @@ void __Error_Handler(const char *func, int line)
 void assert_failed(uint8_t *file, uint32_t line)
 { 
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-    ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* User can add his own implementation to report the file name and line number */
+    printf("Wrong parameters value: file %s on line %d\r\n", file, (int)line);
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

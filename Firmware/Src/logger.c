@@ -190,7 +190,7 @@ void write_log()
   }
 }
 
-void ProcessLogging(CanRxMsgTypeDef *pTxMsg)
+void ProcessLogging(CAN_RxHeaderTypeDef *pTxMsg, uint8_t aData[])
 {
   if (bLogging)
   {
@@ -228,7 +228,7 @@ void ProcessLogging(CanRxMsgTypeDef *pTxMsg)
 
     for (i = 0; i < pTxMsg->DLC; i++)
     {
-      sprintf(sTmp + strlen(sTmp), ",%02X", pTxMsg->Data[i]);
+      sprintf(sTmp + strlen(sTmp), ",%02X", aData[i]);
     }
 
     strcat(sTmp, "\r\n");
