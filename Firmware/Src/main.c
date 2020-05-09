@@ -70,7 +70,7 @@ unsigned char bLogging = 0; // if =1 than we logging to SD card
 // #define CAN1_LOOPBACK
 
 // if defined CAN2 acting as loopback
-#define CAN2_LOOPBACK
+// #define CAN2_LOOPBACK
 
 /* USER CODE END PV */
 
@@ -93,7 +93,6 @@ void LedR(uint8_t On);
 void LedR_Toggle(void);
 void ProcessModification(CAN_TxHeaderTypeDef* pTxMsg);
 void RunTests(void);
-void CAN_CancelTransmit(CAN_HandleTypeDef* hcan);
 
 void UART_ProcessData(uint8_t rx);
 
@@ -131,8 +130,6 @@ int main(void)
 
   /* USER CODE BEGIN SysInit */
   nvs_init();
-  /* Read parameters from nvram */
-  CAN_Read_Param();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -154,18 +151,19 @@ int main(void)
   gSystemInitialized = 1;
 
  /* Output a message on Hyperterminal using printf function */
-  printf("\n\rCAN Bridge\n\r");
+  printf("\n\r" APP_NAME "\n\r");
+  printf("Version : " APP_VERSION "\n\r");
   printf("Compiled : " __DATE__ ", " __TIME__ "\n\r");
   INFO_MSG("CPU speed  : %ld MHz", SystemCoreClock / 1000000);
 
   if (init_filesystem() == FILESYSTEM_INIT_OK)
   {
-    printf("\n\rFS mount successfuly\n\r");
+    printf("FS mount successfuly\n\r");
     gFSInitialized = 1;
   }
   else
   {
-    printf("Error mount FS");
+    printf("Error mount FS\n\r");
   }
 
   RunTests(); // this is function to run transmission tests 
@@ -254,6 +252,9 @@ static void MX_CAN1_Init(void)
   /* USER CODE END CAN1_Init 0 */
 
   /* USER CODE BEGIN CAN1_Init 1 */
+  /* Read parameters from nvram */
+  CAN_Read_Param();
+
 #if 0
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
@@ -363,7 +364,7 @@ static void MX_CAN2_Init(void)
   hcan2.Init.TimeTriggeredMode = DISABLE;
   hcan2.Init.AutoBusOff = DISABLE;
   hcan2.Init.AutoWakeUp = DISABLE;
-  hcan2.Init.AutoRetransmission = ENABLE;
+  hcan2.Init.AutoRetransmission = DISABLE;
   hcan2.Init.ReceiveFifoLocked = DISABLE;
   hcan2.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan2) != HAL_OK)
@@ -371,7 +372,7 @@ static void MX_CAN2_Init(void)
     Error_Handler();
   }
   /*##-2- Configure the CAN Filter ###########################################*/
-  sFilterConfig.FilterBank = 0;
+  sFilterConfig.FilterBank = 15;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
   sFilterConfig.FilterIdHigh = 0x0000;
@@ -489,11 +490,12 @@ static void MX_USART3_UART_Init(void)
 {
 
   /* USER CODE BEGIN USART3_Init 0 */
-
+  static uint8_t usart3_init = 0;
   /* USER CODE END USART3_Init 0 */
 
   /* USER CODE BEGIN USART3_Init 1 */
-
+  if (++usart3_init != 1)
+    return;
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
   huart3.Init.BaudRate = 115200;

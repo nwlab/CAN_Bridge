@@ -1,62 +1,39 @@
 #include "can.h"
 #include "logger.h"
 #include "nvs.h"
+#include "ring.h"
 
 #define MAX_SEND_TRY_COUNT 15000 // this is about 20ms TX timeout (measured by scope)
 
 extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
 
-CAN_TxHeaderTypeDef Tx1Message;
-CAN_RxHeaderTypeDef Rx1Message;
-CAN_TxHeaderTypeDef Tx2Message;
-CAN_RxHeaderTypeDef Rx2Message;
-uint8_t Tx1Data[8];
-uint8_t Rx1Data[8];
-uint8_t Tx2Data[8];
-uint8_t Rx2Data[8];
-
 uint32_t Tx1Mailbox;
 uint32_t Tx2Mailbox;
-
-static uint8_t bCAN1_TxReq = 0;
-static uint8_t bCAN2_TxReq = 0;
 
 static uint32_t iCAN1_Timeout = 0;
 static uint32_t iCAN2_Timeout = 0;
 
-int iCAN1_Prescaler = 6;
-int iCAN2_Prescaler = 6;
-int iCAN1_FilterIdHigh = 0;
-int iCAN1_FilterIdLow = 0;
-int iCAN1_FilterMaskIdHigh = 0;
-int iCAN1_FilterMaskIdLow = 0;
-int iCAN2_FilterIdHigh = 0;
-int iCAN2_FilterIdLow = 0;
-int iCAN2_FilterMaskIdHigh = 0;
-int iCAN2_FilterMaskIdLow = 0;
+static ring_node_t ring1_msg;
+static ring_node_t ring2_msg;
+
+static can_msg_t can1_msg[CAN_MSG_RX_BUF_MAX];
+static can_msg_t can2_msg[CAN_MSG_RX_BUF_MAX];
+
+int iCAN1_Prescaler = CAN_42MHZ_500KBPS_PRE;
+int iCAN2_Prescaler = CAN_42MHZ_500KBPS_PRE;
+uint32_t iCAN1_FilterId = 0;
+uint32_t iCAN1_FilterMaskId = 0;
+uint32_t iCAN2_FilterId = 0;
+uint32_t iCAN2_FilterMaskId = 0;
 int iReplace_Count = 0;
 
-typedef struct replace
-{
-  unsigned int IDMask;
-  unsigned int IDFilter;
-  unsigned int NewIDMask;
-  unsigned int NewIDValue;
-  unsigned int DataMaskHigh;
-  unsigned int DataMaskLow;
-  unsigned int DataFilterHigh;
-  unsigned int DataFilterLow;
-  unsigned int NewDataMaskHigh;
-  unsigned int NewDataMaskLow;
-  unsigned int NewDataValueHigh;
-  unsigned int NewDataValueLow;
-} replace_t;
-#define REPLACEMENT_SIZE (12)
-#define REPLACEMENT_MAX 32
+replace_t iReplace[REPLACEMENT_MAX] = { 0 };
 
-replace_t iReplace[REPLACEMENT_MAX] =
-{ 0 };
+uint32_t iCAN1_Received = 0;
+uint32_t iCAN2_Received = 0;
+uint32_t iCAN1_Transmited = 0;
+uint32_t iCAN2_Transmited = 0;
 
 void ProcessLogging(CAN_RxHeaderTypeDef *pTxMsg, uint8_t aData[]);
 
@@ -68,6 +45,10 @@ void ProcessLogging(CAN_RxHeaderTypeDef *pTxMsg, uint8_t aData[]);
 void CAN_Init()
 {
   HAL_StatusTypeDef res;
+
+  ringCreate(&ring1_msg, CAN_MSG_RX_BUF_MAX);
+  ringCreate(&ring2_msg, CAN_MSG_RX_BUF_MAX);
+
   /* Start the CAN peripheral */
   res = HAL_CAN_Start(&hcan1);
   if (res != HAL_OK)
@@ -105,6 +86,16 @@ void CAN_Init()
   }
 }
 
+uint8_t CAN_GetErrCount(CAN_HandleTypeDef *hcan)
+{
+  return (hcan->Instance->ESR) >> 24;
+}
+
+uint32_t CAN_GetError(CAN_HandleTypeDef *hcan)
+{
+  return HAL_CAN_GetError(hcan);
+}
+
 /**
  * @brief  Rx Fifo 0 message pending callback
  * @param  hcan: pointer to a CAN_HandleTypeDef structure that contains
@@ -114,30 +105,34 @@ void CAN_Init()
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
   uint8_t bAccept = 0;
+  CAN_RxHeaderTypeDef RxMessage;
+  uint8_t RxData[8];
 
   if (hcan == &hcan1)
   {
-    DEBUG_MSG("Receive CAN1 packet");
+    //DEBUG_MSG("Receive CAN1 packet");
     /* Get RX message */
-    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &Rx1Message, Rx1Data) != HAL_OK)
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxMessage, RxData) != HAL_OK)
     {
       /* Reception Error */
       Error_Handler();
     }
 
-    ProcessLogging(&Rx1Message, Rx1Data);
+    iCAN1_Received++;
+
+    ProcessLogging(&RxMessage, RxData);
 
     // software packet filter
-    if (Rx1Message.IDE == CAN_ID_STD)
+    if (RxMessage.IDE == CAN_ID_STD)
     {
       // standard ID
-      if ((Rx1Message.StdId & iCAN1_FilterMaskIdLow) == iCAN1_FilterIdLow)
+      if ((RxMessage.StdId & iCAN1_FilterMaskId) == iCAN1_FilterId)
         bAccept = 1;
     }
     else
     {
       // extended ID
-      if ((Rx1Message.ExtId & iCAN1_FilterMaskIdLow) == iCAN1_FilterIdLow)
+      if ((RxMessage.ExtId & iCAN1_FilterMaskId) == iCAN1_FilterId)
         bAccept = 1;
     }
 
@@ -147,43 +142,49 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
       toggle_time_g = 2;
 
       // copy all stuff from RX CAN1 to TX CAN2
-      Tx2Message.StdId = Rx1Message.StdId;
-      Tx2Message.RTR = Rx1Message.RTR;
-      Tx2Message.IDE = Rx1Message.IDE;
-      Tx2Message.ExtId = Rx1Message.ExtId;
-      Tx2Message.DLC = Rx1Message.DLC;
-      Tx2Data[0] = Rx1Data[0];
-      Tx2Data[1] = Rx1Data[1];
-      Tx2Data[2] = Rx1Data[2];
-      Tx2Data[3] = Rx1Data[3];
-      Tx2Data[4] = Rx1Data[4];
-      Tx2Data[5] = Rx1Data[5];
-      Tx2Data[6] = Rx1Data[6];
-      Tx2Data[7] = Rx1Data[7];
+      uint8_t msg_idx = ringGetWriteIndex(&ring2_msg);
+      can_msg_t *rx_buf = &can2_msg[msg_idx];
 
-      bCAN2_TxReq = 1;  // requesting transmission for CAN2
+      rx_buf->TxHeader.StdId = RxMessage.StdId;
+      rx_buf->TxHeader.RTR = RxMessage.RTR;
+      rx_buf->TxHeader.IDE = RxMessage.IDE;
+      rx_buf->TxHeader.ExtId = RxMessage.ExtId;
+      rx_buf->TxHeader.DLC = RxMessage.DLC;
+      rx_buf->Data[0] = RxData[0];
+      rx_buf->Data[1] = RxData[1];
+      rx_buf->Data[2] = RxData[2];
+      rx_buf->Data[3] = RxData[3];
+      rx_buf->Data[4] = RxData[4];
+      rx_buf->Data[5] = RxData[5];
+      rx_buf->Data[6] = RxData[6];
+      rx_buf->Data[7] = RxData[7];
+
+      ringWriteUpdate(&ring2_msg);
     }
   }
   else
   {
-    DEBUG_MSG("Receive CAN2 packet");
+    //DEBUG_MSG("Receive CAN2 packet");
     /* Get RX message */
-    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &Rx2Message, Rx2Data) != HAL_OK)
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxMessage, RxData) != HAL_OK)
     {
       /* Reception Error */
       Error_Handler();
     }
+
+    iCAN2_Received++;
+
     // software packet filter
-    if (Rx2Message.IDE == CAN_ID_STD)
+    if (RxMessage.IDE == CAN_ID_STD)
     {
       // standard ID
-      if ((Rx2Message.StdId & iCAN2_FilterMaskIdLow) == iCAN2_FilterIdLow)
+      if ((RxMessage.StdId & iCAN2_FilterMaskId) == iCAN2_FilterId)
         bAccept = 1;
     }
     else
     {
       // extended ID
-      if ((Rx2Message.ExtId & iCAN2_FilterMaskIdLow) == iCAN2_FilterIdLow)
+      if ((RxMessage.ExtId & iCAN2_FilterMaskId) == iCAN2_FilterId)
         bAccept = 1;
     }
 
@@ -192,22 +193,25 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
       // CAN1 reception
       toggle_time_b = 2;
 
-      // copy all stuff from RX CAN1 to TX CAN2
-      Tx1Message.StdId = Rx2Message.StdId;
-      Tx1Message.RTR = Rx2Message.RTR;
-      Tx1Message.IDE = Rx2Message.IDE;
-      Tx1Message.ExtId = Rx2Message.ExtId;
-      Tx1Message.DLC = Rx2Message.DLC;
-      Tx1Data[0] = Rx2Data[0];
-      Tx1Data[1] = Rx2Data[1];
-      Tx1Data[2] = Rx2Data[2];
-      Tx1Data[3] = Rx2Data[3];
-      Tx1Data[4] = Rx2Data[4];
-      Tx1Data[5] = Rx2Data[5];
-      Tx1Data[6] = Rx2Data[6];
-      Tx1Data[7] = Rx2Data[7];
+      // copy all stuff from RX CAN2 to TX CAN1
+      uint8_t msg_idx = ringGetWriteIndex(&ring1_msg);
+      can_msg_t *rx_buf = &can1_msg[msg_idx];
 
-      bCAN1_TxReq = 1;  // requesting transmission for CAN2
+      rx_buf->TxHeader.StdId = RxMessage.StdId;
+      rx_buf->TxHeader.RTR = RxMessage.RTR;
+      rx_buf->TxHeader.IDE = RxMessage.IDE;
+      rx_buf->TxHeader.ExtId = RxMessage.ExtId;
+      rx_buf->TxHeader.DLC = RxMessage.DLC;
+      rx_buf->Data[0] = RxData[0];
+      rx_buf->Data[1] = RxData[1];
+      rx_buf->Data[2] = RxData[2];
+      rx_buf->Data[3] = RxData[3];
+      rx_buf->Data[4] = RxData[4];
+      rx_buf->Data[5] = RxData[5];
+      rx_buf->Data[6] = RxData[6];
+      rx_buf->Data[7] = RxData[7];
+
+      ringWriteUpdate(&ring1_msg);
     }
   }
 }
@@ -265,15 +269,20 @@ void CAN_Loop()
 {
   HAL_StatusTypeDef res;
 
-  if (bCAN2_TxReq)
+  //Transmit to CAN2
+  if (ringReadAvailable(&ring2_msg))
   {
+    can_msg_t *p_ret = &can2_msg[ringGetReadIndex(&ring2_msg)];
+
+    ringReadUpdate(&ring2_msg);
+
     LedR(1);
-    ProcessModification(&Tx2Message, Tx2Data);
+    ProcessModification(&p_ret->TxHeader, p_ret->Data);
     LedR(0);
 
-    DEBUG_MSG("Transmit CAN2 packet");
+    //DEBUG_MSG("Transmit CAN2 packet");
 
-    res = HAL_CAN_AddTxMessage(&hcan2, &Tx2Message, Tx2Data, &Tx2Mailbox);
+    res = HAL_CAN_AddTxMessage(&hcan2, &p_ret->TxHeader, p_ret->Data, &Tx2Mailbox);
 
     if (res != HAL_OK)
     {
@@ -292,17 +301,26 @@ void CAN_Loop()
     }
     else
     {
-      bCAN2_TxReq = 0;
+      while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan2) != 3)
+      {
+      }
+      iCAN2_Transmited++;
       iCAN2_Timeout = 0;
     }
   }
 
-  if (bCAN1_TxReq)
+  //Transmit to CAN1
+  if (ringReadAvailable(&ring1_msg))
   {
+    can_msg_t *p_ret = &can1_msg[ringGetReadIndex(&ring1_msg)];
+
+    ringReadUpdate(&ring1_msg);
+
     //ProcessModification(&Tx1Message, Tx1Data); // TODO: maybe add CAN instance selector in replacement data?
 
-    DEBUG_MSG("Transmit CAN1 packet");
-    res = HAL_CAN_AddTxMessage(&hcan1, &Tx1Message, Tx1Data, &Tx1Mailbox);
+    //DEBUG_MSG("Transmit CAN1 packet");
+
+    res = HAL_CAN_AddTxMessage(&hcan1, &p_ret->TxHeader, p_ret->Data, &Tx1Mailbox);
 
     if (res != HAL_OK)
     {
@@ -322,7 +340,10 @@ void CAN_Loop()
     }
     else
     {
-      bCAN1_TxReq = 0;
+      while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) != 3)
+      {
+      }
+      iCAN1_Transmited++;
       iCAN1_Timeout = 0;
     }
   }
@@ -339,46 +360,39 @@ void CAN_Read_Param()
 
   if (nvs_get("c1_pre", (uint8_t*) &iCAN1_Prescaler, &size, sizeof(iCAN1_Prescaler)) == KEY_NOT_FOUND
       || nvs_get("c2_pre", (uint8_t*) &iCAN2_Prescaler, &size, sizeof(iCAN2_Prescaler)) == KEY_NOT_FOUND
-      || nvs_get("c1_fih", (uint8_t*) &iCAN1_FilterIdHigh, &size, sizeof(iCAN1_FilterIdHigh)) == KEY_NOT_FOUND
-      || nvs_get("c1_fil", (uint8_t*) &iCAN1_FilterIdLow, &size, sizeof(iCAN1_FilterIdLow)) == KEY_NOT_FOUND
-      || nvs_get("c1_fmih", (uint8_t*) &iCAN1_FilterMaskIdHigh, &size, sizeof(iCAN1_FilterMaskIdHigh)) == KEY_NOT_FOUND
-      || nvs_get("c1_fmil", (uint8_t*) &iCAN1_FilterMaskIdLow, &size, sizeof(iCAN1_FilterMaskIdLow)) == KEY_NOT_FOUND
-      || nvs_get("c2_fih", (uint8_t*) &iCAN2_FilterIdHigh, &size, sizeof(iCAN2_FilterIdHigh)) == KEY_NOT_FOUND
-      || nvs_get("c2_fil", (uint8_t*) &iCAN2_FilterIdLow, &size, sizeof(iCAN2_FilterIdLow)) == KEY_NOT_FOUND
-      || nvs_get("c2_fmih", (uint8_t*) &iCAN2_FilterMaskIdHigh, &size, sizeof(iCAN2_FilterMaskIdHigh)) == KEY_NOT_FOUND
-      || nvs_get("c2_fmil", (uint8_t*) &iCAN2_FilterMaskIdLow, &size, sizeof(iCAN2_FilterMaskIdLow)) == KEY_NOT_FOUND
+      || nvs_get("c1_fid", (uint8_t*) &iCAN1_FilterId, &size, sizeof(iCAN1_FilterId)) == KEY_NOT_FOUND
+      || nvs_get("c1_fmid", (uint8_t*) &iCAN1_FilterMaskId, &size, sizeof(iCAN1_FilterMaskId)) == KEY_NOT_FOUND
+      || nvs_get("c2_fid", (uint8_t*) &iCAN2_FilterId, &size, sizeof(iCAN2_FilterId)) == KEY_NOT_FOUND
+      || nvs_get("c2_fmid", (uint8_t*) &iCAN2_FilterMaskId, &size, sizeof(iCAN2_FilterMaskId)) == KEY_NOT_FOUND
       || nvs_get("repl_cnt", (uint8_t*) &iReplace_Count, &size, sizeof(iReplace_Count)) == KEY_NOT_FOUND
       || nvs_get("replace", (uint8_t*) &iReplace, &size, sizeof(iReplace)) == KEY_NOT_FOUND)
   {
     DEBUG_MSG("No parameters in NVS, Set to default");
-    iCAN1_Prescaler = 6;
-    iCAN2_Prescaler = 6;
-    iCAN1_FilterIdHigh = 0;
-    iCAN1_FilterIdLow = 0;
-    iCAN1_FilterMaskIdHigh = 0;
-    iCAN1_FilterMaskIdLow = 0;
-    iCAN2_FilterIdHigh = 0;
-    iCAN2_FilterIdLow = 0;
-    iCAN2_FilterMaskIdHigh = 0;
-    iCAN2_FilterMaskIdLow = 0;
+    iCAN1_Prescaler = CAN_42MHZ_500KBPS_PRE;
+    iCAN2_Prescaler = CAN_42MHZ_500KBPS_PRE;
+    iCAN1_FilterId = 0;
+    iCAN1_FilterMaskId = 0;
+    iCAN2_FilterId = 0;
+    iCAN2_FilterMaskId = 0;
     iReplace_Count = 0;
-    nvs_put("c1_pre", (uint8_t*) &iCAN1_Prescaler, sizeof(iCAN1_Prescaler), sizeof(iCAN1_Prescaler));
-    nvs_put("c2_pre", (uint8_t*) &iCAN2_Prescaler, sizeof(iCAN2_Prescaler), sizeof(iCAN2_Prescaler));
-    nvs_put("c1_fih", (uint8_t*) &iCAN1_FilterIdHigh, sizeof(iCAN1_FilterIdHigh), sizeof(iCAN1_FilterIdHigh));
-    nvs_put("c1_fil", (uint8_t*) &iCAN1_FilterIdLow, sizeof(iCAN1_FilterIdLow), sizeof(iCAN1_FilterIdLow));
-    nvs_put("c1_fmih", (uint8_t*) &iCAN1_FilterMaskIdHigh, sizeof(iCAN1_FilterMaskIdHigh),
-        sizeof(iCAN1_FilterMaskIdHigh));
-    nvs_put("c1_fmil", (uint8_t*) &iCAN1_FilterMaskIdLow, sizeof(iCAN1_FilterMaskIdLow), sizeof(iCAN1_FilterMaskIdLow));
-    nvs_put("c2_fih", (uint8_t*) &iCAN2_FilterIdHigh, sizeof(iCAN2_FilterIdHigh), sizeof(iCAN2_FilterIdHigh));
-    nvs_put("c2_fil", (uint8_t*) &iCAN2_FilterIdLow, sizeof(iCAN2_FilterIdLow), sizeof(iCAN2_FilterIdLow));
-    nvs_put("c2_fmih", (uint8_t*) &iCAN2_FilterMaskIdHigh, sizeof(iCAN2_FilterMaskIdHigh),
-        sizeof(iCAN2_FilterMaskIdHigh));
-    nvs_put("c2_fmil", (uint8_t*) &iCAN2_FilterMaskIdLow, sizeof(iCAN2_FilterMaskIdLow), sizeof(iCAN2_FilterMaskIdLow));
-    nvs_put("repl_cnt", (uint8_t*) &iReplace_Count, sizeof(iReplace_Count), sizeof(iReplace_Count));
-    nvs_put("replace", (uint8_t*) &iReplace, sizeof(iReplace), sizeof(iReplace));
+
+    CAN_Write_Param();
+
     if (nvs_commit() != NVS_OK)
     {
       DEBUG_MSG("Flash commit failed");
     }
   }
+}
+
+void CAN_Write_Param()
+{
+  nvs_put("c1_pre", (uint8_t*) &iCAN1_Prescaler, sizeof(iCAN1_Prescaler), sizeof(iCAN1_Prescaler));
+  nvs_put("c2_pre", (uint8_t*) &iCAN2_Prescaler, sizeof(iCAN2_Prescaler), sizeof(iCAN2_Prescaler));
+  nvs_put("c1_fid", (uint8_t*) &iCAN1_FilterId, sizeof(iCAN1_FilterId), sizeof(iCAN1_FilterId));
+  nvs_put("c1_fmid", (uint8_t*) &iCAN1_FilterMaskId, sizeof(iCAN1_FilterMaskId), sizeof(iCAN1_FilterMaskId));
+  nvs_put("c2_fid", (uint8_t*) &iCAN2_FilterId, sizeof(iCAN2_FilterId), sizeof(iCAN2_FilterId));
+  nvs_put("c2_fmid", (uint8_t*) &iCAN2_FilterMaskId, sizeof(iCAN2_FilterMaskId), sizeof(iCAN2_FilterMaskId));
+  nvs_put("repl_cnt", (uint8_t*) &iReplace_Count, sizeof(iReplace_Count), sizeof(iReplace_Count));
+  nvs_put("replace", (uint8_t*) &iReplace, sizeof(iReplace), sizeof(iReplace));
 }

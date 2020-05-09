@@ -8,7 +8,7 @@
 #include "main.h"
 
 
-void rtcGetTime(RTC_HandleTypeDef *hrtc, struct tm *timp)
+void RTC_GetTime(RTC_HandleTypeDef *hrtc, struct tm *timp)
 {
   RTC_DateTypeDef rtcDate;
   RTC_TimeTypeDef rtcTime;

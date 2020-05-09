@@ -137,7 +137,7 @@ void read_config_file()
 void start_log()
 {
   // open file and write the begining of the load
-  rtcGetTime(&hrtc, &timp);
+  RTC_GetTime(&hrtc, &timp);
   sprintf(sLine, "%04d-%02d-%02dT%02d-%02d-%02dZ.csv", timp.tm_year + 1900, timp.tm_mon, timp.tm_mday, timp.tm_hour, timp.tm_min, timp.tm_sec); // making new file
 
   DEBUG_MSG("Open file %s", sLine);

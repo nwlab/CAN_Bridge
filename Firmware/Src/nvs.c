@@ -41,7 +41,7 @@ static inline void write64(void* p, uint64_t w)
     x[7] = (w>>56) & 0xFF;
 }
 
-static uint8_t nvs_memory[FLASH_CFG_SIZE];
+static uint8_t nvs_memory[FLASH_CFG_SIZE] = {0xFF};
 
 __attribute__((__section__(".user_data")))
 uint8_t nvs_memory_flash[FLASH_CFG_SIZE];

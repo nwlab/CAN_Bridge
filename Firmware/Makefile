@@ -6,6 +6,7 @@
 # Generic Makefile (based on gcc)
 #
 # ChangeLog :
+#   2020-05-09 - CAN bridge implementation
 #	2017-02-10 - Several enhancements + project update mode
 #   2015-07-22 - first version
 # ------------------------------------------------
@@ -22,7 +23,7 @@ TARGET = STM32F4
 # debug build?
 DEBUG = 1
 # optimization
-OPT = -Og -Wall
+OPT = -O2 -Wall
 
 
 #######################################

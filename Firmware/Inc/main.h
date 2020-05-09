@@ -90,13 +90,16 @@ void LedR_Toggle(void);
 extern uint32_t toggle_time_g;
 extern uint32_t toggle_time_b;
 
+extern volatile uint8_t gFSInitialized;
+
 #define Error_Handler() __Error_Handler(__FUNCTION__, __LINE__)
 void __Error_Handler(const char *func, int line);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
 /* USER CODE BEGIN Private defines */
-
+#define APP_NAME "CAN Bridge/Logger"
+#define APP_VERSION "1.0"
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

@@ -572,18 +572,10 @@ int cli_int_configure_terminal(struct cli_def *cli, UNUSED(const char *command),
 
 struct cli_def *cli_init()
 {
-    struct cli_def *cli;
-//    struct cli_command *c;
+    static struct cli_def _cli = {0};
+    struct cli_def *cli = &_cli;
 
-    if (!(cli = calloc(sizeof(struct cli_def), 1)))
-        return 0;
-
-    cli->buf_size = 1024;
-    if (!(cli->buffer = calloc(cli->buf_size, 1)))
-    {
-        free_z(cli);
-        return 0;
-    }
+    cli->buf_size = CLI_BUFFER_SIZE;
     cli->telnet_protocol = 0;
 
     cli_register_command(cli, 0, "help", cli_int_help, PRIVILEGE_UNPRIVILEGED, MODE_ANY, "Show available commands");
@@ -605,12 +597,6 @@ struct cli_def *cli_init()
     cli_set_privilege(cli, PRIVILEGE_UNPRIVILEGED);
     cli_set_configmode(cli, MODE_EXEC, 0);
 
-    // Default to 1 second timeout intervals
-    cli->timeout_tm.tv_sec = 1;
-    cli->timeout_tm.tv_usec = 0;
-
-    // Set default idle timeout callback, but no timeout
-    cli_set_idle_timeout_callback(cli, 0, cli_int_idle_timeout);
     return cli;
 }
 
@@ -664,8 +650,6 @@ int cli_done(struct cli_def *cli)
     free_z(cli->banner);
     free_z(cli->promptchar);
     free_z(cli->hostname);
-    free_z(cli->buffer);
-    free_z(cli);
 
     return CLI_OK;
 }
@@ -1134,13 +1118,13 @@ static void cli_clear_line(struct cli_def *cli, char *cmd, int l, int cursor)
      */
     for (i = 0; i < l; i++)
         cmd[i] = '\b';
-    cli->write_callback(cli, cmd, 1);
+    cli->write_callback(cli, cmd, i);
     for (i = 0; i < l; i++)
         cmd[i] = ' ';
-    cli->write_callback(cli, cmd, 1);
+    cli->write_callback(cli, cmd, i);
     for (i = 0; i < l; i++)
         cmd[i] = '\b';
-    cli->write_callback(cli, cmd, 1);
+    cli->write_callback(cli, cmd, i);
     memset((char *)cmd, 0, 1);
     l = cursor = 0;
 }
@@ -1155,13 +1139,6 @@ void cli_regular(struct cli_def *cli, int (*callback)(struct cli_def *cli))
 {
     if (!cli) return;
     cli->regular_callback = callback;
-}
-
-void cli_regular_interval(struct cli_def *cli, int seconds)
-{
-    if (seconds < 1) seconds = 1;
-    cli->timeout_tm.tv_sec = seconds;
-    cli->timeout_tm.tv_usec = 0;
 }
 
 static int pass_matches(const char *pass, const char *try)
@@ -1215,10 +1192,6 @@ int cli_loop(struct cli_def *cli, int sockfd)
     if (cli->banner)
         cli_error(cli, "%s", cli->banner);
 
-    // Set the last action now so we don't time immediately
-    if (cli->idle_timeout)
-        time(&cli->last_action);
-
     /* start off in unprivileged mode */
     cli_set_privilege(cli, PRIVILEGE_UNPRIVILEGED);
     cli_set_configmode(cli, MODE_EXEC, NULL);
@@ -1231,7 +1204,6 @@ int cli_loop(struct cli_def *cli, int sockfd)
     {
         signed int in_history = 0;
         int lastchar = 0;
-        struct timeval tm;
 
         cli->showprompt = 1;
 
@@ -1249,8 +1221,6 @@ int cli_loop(struct cli_def *cli, int sockfd)
             l = 0;
             cursor = 0;
         }
-
-        memcpy(&tm, &cli->timeout_tm, sizeof(tm));
 
         while (1)
         {
@@ -1302,27 +1272,6 @@ int cli_loop(struct cli_def *cli, int sockfd)
                     break;
                 }
 
-                if (cli->idle_timeout)
-                {
-                    if (time(NULL) - cli->last_action >= cli->idle_timeout)
-                    {
-                        if (cli->idle_timeout_callback)
-                        {
-                            // Call the callback and continue on if successful
-                            if (cli->idle_timeout_callback(cli) == CLI_OK)
-                            {
-                                // Reset the idle timeout counter
-                                time(&cli->last_action);
-                                continue;
-                            }
-                        }
-                        // Otherwise, break out of the main loop
-                        l = -1;
-                        break;
-                    }
-                }
-
-                memcpy(&tm, &cli->timeout_tm, sizeof(tm));
                 continue;
             }
             /*
@@ -1339,9 +1288,6 @@ int cli_loop(struct cli_def *cli, int sockfd)
                 l = -1;
                 break;
             }
-
-            if (cli->idle_timeout)
-                time(&cli->last_action);
 
             if (n == 0)
             {
@@ -1907,11 +1853,6 @@ int cli_loop(struct cli_def *cli, int sockfd)
             if (cli_run_command(cli, cmd) == CLI_QUIT)
                 break;
         }
-
-        // Update the last_action time now as the last command run could take a
-        // long time to return
-        if (cli->idle_timeout)
-            time(&cli->last_action);
     }
 
     cli_free_history(cli);
@@ -1967,31 +1908,13 @@ int cli_file(struct cli_def *cli, FILE *fh, int privilege, int mode)
 
 static void _print(struct cli_def *cli, int print_mode, const char *format, va_list ap)
 {
-    va_list aq;
     int n;
     char *p;
 
     if (!cli) return; // sanity check
 
-    while (1)
-    {
-        WL_VA_COPY(aq, ap);
-        if ((n = vsnprintf(cli->buffer, cli->buf_size, format, ap)) == -1)
-            return;
-
-        if ((unsigned)n >= cli->buf_size)
-        {
-            cli->buf_size = n + 1;
-            cli->buffer = realloc(cli->buffer, cli->buf_size);
-            if (!cli->buffer)
-                return;
-            va_end(ap);
-            WL_VA_COPY(ap, aq);
-            continue;
-        }
-        break;
-    }
-
+    if ((n = vsnprintf(cli->buffer, cli->buf_size, format, ap)) == -1)
+          return;
 
     p = cli->buffer;
     do
@@ -2330,19 +2253,6 @@ void cli_write_callback(struct cli_def *cli, ssize_t (*callback)(struct cli_def 
         cli->write_callback = _write;
 }
 
-void cli_set_idle_timeout(struct cli_def *cli, unsigned int seconds)
-{
-    if (seconds < 1)
-        seconds = 0;
-    cli->idle_timeout = seconds;
-    time(&cli->last_action);
-}
-
-void cli_set_idle_timeout_callback(struct cli_def *cli, unsigned int seconds, int (*callback)(struct cli_def *))
-{
-    cli_set_idle_timeout(cli, seconds);
-    cli->idle_timeout_callback = callback;
-}
 
 void cli_telnet_protocol(struct cli_def *cli, int telnet_protocol) {
     cli->telnet_protocol = !!telnet_protocol;

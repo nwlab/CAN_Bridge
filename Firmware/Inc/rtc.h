@@ -12,7 +12,7 @@
 
 extern RTC_HandleTypeDef hrtc;
 
-void rtcGetTime(RTC_HandleTypeDef *hrtc, struct tm *timp);
+void RTC_GetTime(RTC_HandleTypeDef *hrtc, struct tm *timp);
 
 
 #endif /* INC_RTC_H_ */

@@ -53,7 +53,7 @@ DWORD get_fattime(void)
 {
   /* USER CODE BEGIN get_fattime */
   struct tm tmp;
-  rtcGetTime(&hrtc, &tmp);
+  RTC_GetTime(&hrtc, &tmp);
   return (((tmp.tm_year + 20) << 25) | \
   ((tmp.tm_mon) << 21) | \
   ((tmp.tm_mday) << 16) | \

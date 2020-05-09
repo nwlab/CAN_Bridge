@@ -31,6 +31,9 @@ extern "C" {
 #define CLI_MAX_LINE_LENGTH     4096
 #define CLI_MAX_LINE_WORDS      128
 
+#ifndef CLI_BUFFER_SIZE
+#define CLI_BUFFER_SIZE         1024
+#endif
 #ifdef va_copy
 #define WL_VA_COPY(ap1, ap2)   va_copy(ap1,ap2)
 #else
@@ -62,12 +65,8 @@ struct cli_def
     void *conn;
     void *service;
     char *commandname;  // temporary buffer for cli_command_name() to prevent leak
-    char *buffer;
+    char buffer[CLI_BUFFER_SIZE];
     unsigned buf_size;
-    struct timeval timeout_tm;
-    time_t idle_timeout;
-    int (*idle_timeout_callback)(struct cli_def *);
-    time_t last_action;
     int telnet_protocol;
     void *user_context;
     int sockfd;
@@ -127,8 +126,6 @@ void cli_print_callback(struct cli_def *cli, void (*callback)(struct cli_def *, 
 void cli_read_callback(struct cli_def *cli, ssize_t (*callback)(struct cli_def *, void *, size_t));
 void cli_write_callback(struct cli_def *cli, ssize_t (*callback)(struct cli_def *, const void *, size_t));
 void cli_free_history(struct cli_def *cli);
-void cli_set_idle_timeout(struct cli_def *cli, unsigned int seconds);
-void cli_set_idle_timeout_callback(struct cli_def *cli, unsigned int seconds, int (*callback)(struct cli_def *));
 
 // Enable or disable telnet protocol negotiation.
 // Note that this is enabled by default and must be changed before cli_loop() is run.
